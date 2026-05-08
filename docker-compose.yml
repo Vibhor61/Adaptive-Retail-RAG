@@ -47,6 +47,13 @@ services:
     volumes:
       - phoenix_data:/data
 
+  # fastapi:
+  #   image: fastapi
+  #   container_name: rag_fastapi
+  #   ports:
+  #     -
+  #   environment:
+  #     - 
 volumes:
   phoenix_data:
   qdrant_data:
