@@ -32,11 +32,11 @@ KNOWN_BRANDS = set()
 
 router_llm = OllamaLLM(model="mistral:latest")
 
-class RouterStatus(enum.Enum):
-    Passed = "passed"
-    Low_Confidence = "low_confidence"
-    Vague = "vague"
-    Ambiguous = "ambiguous"
+class RouterAction(enum.Enum):
+    CONTINUE = "continue"
+    REWRITE = "rewrite"
+    CLARIFY = "clarify"
+    FALLBACK_HYBRID = "fallback_hybrid"
 
 
 class QueryType(enum.Enum):
@@ -50,7 +50,8 @@ class QueryType(enum.Enum):
 class RouterResult:
     retrieval_type: str
     query_type: QueryType
-    status: RouterStatus
+
+    next_action: RouterAction
 
     confidence: float
     reason: str
@@ -98,15 +99,18 @@ class DBEntityLoader:
         return None, 0.0
 
     def resolve(self, field: str, value: str, threshold: float = 0.75):
-        exact, score = self.exact_match(field, value)
-        if exact:
-            return exact, score, "exact"
+        try:
+            exact, score = self.exact_match(field, value)
+            if exact:
+                return exact, score, "exact"
 
-        fuzzy, score = self.fuzzy_match(field, value)
-        if fuzzy and score >= threshold:
-            return fuzzy, score, "fuzzy"
+            fuzzy, score = self.fuzzy_match(field, value)
+            if fuzzy and score >= threshold:
+                return fuzzy, score, "fuzzy"
 
-        return None, 0.0, "none"
+            return None, 0.0, "none"
+        except Exception:
+            return None, 0.0, "error"
 
 resolver = DBEntityLoader()
 
@@ -176,38 +180,45 @@ def llm_fallback(query:str) -> RouterResult:
                 Classify the intent of following {query} and respond with the appropriate retrieval type and reason.
             """
             
-            raw = router_llm.invoke(prompt = ollama_response)
-            result = json.loads(raw.content.strip())
+            raw = router_llm.invoke(ollama_response)
 
-            retrieval_type = result.get("retrieval_type")
-            query_type = map_query_type(retrieval_type, set(preprocess_query(query)))
+            text = raw if isinstance(raw, str) else raw.content
+
+            parsed = json.loads(text.strip())
+
+            retrieval_type = parsed["retrieval_type"]
 
             span.set_attribute("llm.output.length", len(str(raw)))
             span.set_attribute("llm.parse.status", "success")
 
             return RouterResult(
                     retrieval_type=retrieval_type,
-                    query_type=query_type,
-                    status=RouterStatus.Low_confidence,
+                    query_type=map_query_type(
+                        retrieval_type,
+                        set(preprocess_query(query))
+                    ),
                     confidence=0.65,
-                    reason=result.get("reason", "LLM classification"),
-                    signals={"type": "llm_fallback"},
+                    next_action=RouterAction.CONTINUE,
+                    reason=parsed.get("reason", "LLM fallback"),
+                    signals={
+                        "type": "llm_fallback"
+                    },
                     llm_used=True
                 )
         
         except Exception as e:
-            span.set_attribute("router.status", RouterStatus.Failed.value)
             span.set_attribute("router.failure_reason", str(e))
 
             return RouterResult(
                 retrieval_type="hybrid",
-                query_type=QueryType.VAGUE,
-                status=RouterStatus.Failed,
-                confidence=0.3,
-                reason="LLM fallback failed",
-                signals={"type": "llm_error"},
-                llm_used=True,
-                failure_reason=str(e)
+                query_type=QueryType.REVIEW_QUERY,
+                confidence=0.35,
+                next_action=RouterAction.FALLBACK_HYBRID,
+                reason="LLM fallback failed, safe hybrid fallback applied",
+                signals={
+                    "type": "safe_fallback"
+                },
+                llm_used=True
             )
 
 
@@ -224,11 +235,16 @@ def route(query:str) -> RouterResult:
         if phrase_result:
             return RouterResult(
                 retrieval_type=phrase_result,
-                query_type=map_query_type(phrase_result, tokens),
-                status=RouterStatus.Passed,
+                query_type=map_query_type(
+                    phrase_result,
+                    tokens
+                ),
                 confidence=0.90,
+                next_action=RouterAction.CONTINUE,
                 reason="Phrase match detected",
-                signals={"type": "phrase_match"},
+                signals={
+                    "type": "phrase_match"
+                },
                 llm_used=False
             )
 
@@ -237,10 +253,13 @@ def route(query:str) -> RouterResult:
             return RouterResult(
                 retrieval_type="hybrid",
                 query_type=QueryType.COMPARISON,
-                status=RouterStatus.Passed,
-                confidence=0.80,
-                reason=f"Hybrid keywords: {matched}",
-                signals={"type": "keyword","matched": list(matched)},
+                confidence=0.85,
+                next_action=RouterAction.CONTINUE,
+                reason="Comparison keywords detected",
+                signals={
+                    "type": "hybrid_keyword",
+                    "matched": matched
+                },
                 llm_used=False
             )
 
@@ -251,10 +270,13 @@ def route(query:str) -> RouterResult:
             return RouterResult(
                 retrieval_type="sparse",
                 query_type=QueryType.PRODUCT_LOOKUP,
-                status=RouterStatus.Passed,
                 confidence=0.80,
-                reason="Sparse keywords",
-                signals={"type": "keyword"},
+                next_action=RouterAction.CONTINUE,
+                reason="Sparse keywords detected",
+                signals={
+                    "type": "sparse_keyword",
+                    "matched": list(sparse_hits)
+                },
                 llm_used=False
             )
 
@@ -262,22 +284,29 @@ def route(query:str) -> RouterResult:
             return RouterResult(
                 retrieval_type="dense",
                 query_type=QueryType.REVIEW_QUERY,
-                status=RouterStatus.Passed,
-                reason="Dense keywords",
-                signals={"type": "keyword"},
-                llm_used=False,
-                confidence=0.80
+                confidence=0.80,
+                next_action=RouterAction.CONTINUE,
+                reason="Dense keywords detected",
+                signals={
+                    "type": "dense_keyword",
+                    "matched": list(dense_hits)
+                },
+                llm_used=False
             )
 
         if sparse_hits and dense_hits:
             return RouterResult(
                 retrieval_type="hybrid",
-                query_type=QueryType.REVIEW_QUERY,  
-                status=RouterStatus.Ambiguous,
-                reason="Conflicting signals",
-                signals={"type": "keyword"},
-                llm_used=False,
-                confidence=0.5
+                query_type=QueryType.REVIEW_QUERY,
+                confidence=0.50,
+                next_action=RouterAction.FALLBACK_HYBRID,
+                reason="Conflicting sparse and dense signals",
+                signals={
+                    "type": "conflicting_keywords",
+                    "sparse_hits": list(sparse_hits),
+                    "dense_hits": list(dense_hits)
+                },
+                llm_used=False
             )
 
         with tracer.start_as_current_span("router_db_resolution") as db_span:
@@ -289,10 +318,12 @@ def route(query:str) -> RouterResult:
                 return RouterResult(
                     retrieval_type="sparse",
                     query_type=QueryType.PRODUCT_LOOKUP,
-                    status=RouterStatus.Passed,
-                    confidence=max(0.80, min(0.90,score)),
-                    reason="Exact entity match",
-                    signals={"type": "db_exact"},
+                    confidence=max(0.80, min(0.95, score)),
+                    next_action=RouterAction.CONTINUE,
+                    reason="Exact brand entity match",
+                    signals={
+                        "type": "db_exact"
+                    },
                     llm_used=False,
                     entity_signal=match
                 )
@@ -301,24 +332,27 @@ def route(query:str) -> RouterResult:
                 return RouterResult(
                     retrieval_type="sparse",
                     query_type=QueryType.PRODUCT_LOOKUP,
-                    status=RouterStatus.Low_Confidence,
-                    confidence=0.65,
-                    reason="Fuzzy entity match",
-                    signals={"type": "db_fuzzy"},
+                    confidence=0.55,
+                    next_action=RouterAction.REWRITE,
+                    reason="Weak fuzzy entity match",
+                    signals={
+                        "type": "db_fuzzy"
+                    },
                     llm_used=False,
                     entity_signal=match
                 )
 
         if len(tokens) <= 2:
             return RouterResult(
-                retrieval_type="none",
+                retrieval_type="hybrid",
                 query_type=QueryType.VAGUE,
-                status=RouterStatus.Vague,
-                reason="Too vague",
-                confidence=0.3,
-                signals={"type": "vague"},
-                llm_used=False,
-                failure_reason="insufficient signal"
+                confidence=0.25,
+                next_action=RouterAction.CLARIFY,
+                reason="Query too vague",
+                signals={
+                    "type": "vague_query"
+                },
+                llm_used=False
             )
 
         return llm_fallback(query)

@@ -17,11 +17,13 @@ tracer = trace.get_tracer(__name__)
 
 class GenerationStatus(enum.Enum):
     PASSED = "passed"
+    
     EMPTY = "empty"
     TOO_SHORT = "too_short"
     REFUSAL = "refusal"
     LOW_COVERAGE = "low_coverage"
     ATTRIBUTION_ERROR = "attribution_error"
+    
     EXCEPTION = "exception"
 
 
@@ -29,11 +31,15 @@ class GenerationStatus(enum.Enum):
 class ValidationSignals:
     has_product_facts: bool
     has_customer_reviews: bool
+    
     answer_length: int
+    
     cited_product_facts: bool
     cited_customer_reviews: bool
+    
     mentioned_asins: int
     mentioned_titles: int
+    
     coverage_score: Optional[float]
 
 
@@ -44,9 +50,11 @@ class GenerationResult:
 
     score: Optional[float]
     status: Optional[GenerationStatus]
-    failure_reason: Optional[str]
     signals: Optional[ValidationSignals]
 
+    failure_reason: Optional[str]
+    failure_details: Optional[str]
+    
 
 def select_model(model_number:int):
     if model_number == 1:
@@ -56,6 +64,30 @@ def select_model(model_number:int):
     else:
         return gemini_flash_llm, "gemini-1.5-pro"
     
+
+def classify_generation_exceptions(exception: Exception) -> str:
+    exception_str = str(exception).lower()
+
+    if "429" in exception_str or "rate limit" in exception_str:
+        return "rate_limit"
+    
+    if "timeout" in exception_str or "timed out" in exception_str:
+        return "timeout"
+    
+    if "503" in exception_str or "service unavailable" in exception_str or "connection" in exception_str:
+        return "service_unavailable"
+    
+    if "context" in exception_str or "length" in exception_str or "token" in exception_str:
+        return "context_overflow"
+    
+    if "parse" in exception_str or "json" in exception_str:
+        return "response_parsing_error"
+    
+    if "401" in exception_str or "unauthorized" in exception_str or "api key" in exception_str:
+        return "authentication_error"
+    
+    return "unknown_generation_exception"
+
 
 def build_prompt(query:str, postgres_results: List[RetrievalResult]|None, qdrant_results: List[RetrievalResult]|None) -> str:
     prompt =f"""  
@@ -93,14 +125,18 @@ def build_prompt(query:str, postgres_results: List[RetrievalResult]|None, qdrant
         - Based on the information provided, answer the user's query. If information is insufficient to provide confident answer, say you don't know.
         - Do not make up information not present above
     """
+
     return prompt
 
 
 def validate_answer(answer:str, query:str, postgres_results: List[RetrievalResult]|None, qdrant_results: List[RetrievalResult]|None) -> tuple[GenerationStatus, float, str, ValidationSignals]:
+    
     with tracer.start_as_current_span("answer_validation") as span:
+        
         normalized_answer = answer.lower()
         has_product_facts = len(postgres_results) > 0 if postgres_results else False
         has_customer_reviews = len(qdrant_results) > 0 if qdrant_results else False
+        
         span.set_attribute("validation.has_product_facts", has_product_facts)
         span.set_attribute("validation.has_customer_reviews", has_customer_reviews)
         span.set_attribute("validation.answer_length", len(answer))
@@ -109,6 +145,7 @@ def validate_answer(answer:str, query:str, postgres_results: List[RetrievalResul
         sparse_asins = set()
         product_brands = set()
         product_categories = set()
+        
         if has_product_facts:
             for item in postgres_results:
                 metadata = item.metadata or {}
@@ -265,7 +302,10 @@ def generate_answer(prompt:str, model_number:int = 1) -> Tuple[str, str]:
 
         try: 
             response = llm.invoke(prompt)
-            answer_text = response.content.strip()
+            if isinstance(response, str):
+                answer_text = response.strip()
+            else:
+                answer_text = response.content.strip()
 
             if hasattr(response, "usage"):
                 span.set_attribute("llm.total_tokens", getattr(response.usage, "total_tokens", 0))
@@ -278,8 +318,15 @@ def generate_answer(prompt:str, model_number:int = 1) -> Tuple[str, str]:
         except Exception as e:
             span.set_attribute("answer.status", "error")
             span.set_attribute("answer.failure_reason", str(e))
-
-            return "Failed to generate answer.", model_name
+            
+            return GenerationResult(
+                answer="",
+                model_used=model_name,
+                score=0.0,
+                status=GenerationStatus.EXCEPTION,
+                failure_reason=classify_generation_exceptions(e),
+                signals=None
+            )
 
 
 
@@ -292,6 +339,7 @@ def answer_query(query: str, retrieval_result: FinalResult, level: int = 1) -> G
                 model_used="",
                 score=0.0,
                 status=GenerationStatus.EMPTY,
+                failure_type="no_retrieval_results",
                 failure_reason="No retrieval results provided",
                 signals=None
             )

@@ -429,7 +429,34 @@ def controller_node(state: State) -> dict:
                 }
             
         if stage == "generation":
-            pass
+            span.set_attribute("controller.stage", "generation")
+            failure_type = state.get("failure_type")
+            model_index = state.get("model_index", 1)
+            retrieval_mode = state.get("retrieval_type", "hybrid")
+
+            span.set_attribute("controller.status", failure_type)
+            span.set_attribute("controller.model_index", model_index)
+
+            # Try a stronger model first
+            if model_index < 3:
+                span.set_attribute("controller.next_step", "generate")
+                return {
+                    "model_index": model_index + 1,
+                    "next_step": "generate"
+                }
+
+            # If retrieval was not hybrid, broaden the context and retry
+            if retrieval_mode != "hybrid":
+                span.set_attribute("controller.next_step", "retrieval")
+                return {
+                    "routing_decision": "hybrid",
+                    "next_step": "retrieval"
+                }
+
+            span.set_attribute("controller.next_step", "rewrite")
+            return {
+                "next_step": "rewrite"
+            }
 
 
         

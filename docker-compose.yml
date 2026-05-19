@@ -39,7 +39,7 @@ services:
     
   phoenix:
     image: arizephoenix/phoenix:latest
-    container_name: phoenix
+    container_name: rag_phoenix
     ports:
       - "5107:6006"
     environment:
