@@ -2,11 +2,13 @@ import re
 import enum
 import json
 from dataclasses import dataclass
-from typing import Set
+from typing import Set, Optional
 from opentelemetry import trace
 from langchain_ollama import OllamaLLM
+from utils import safe_llm_call
 
 tracer = trace.get_tracer(__name__)
+
 
 class QueryType(enum.Enum):
     PRODUCT_LOOKUP = "product_lookup"
@@ -18,26 +20,22 @@ class QueryType(enum.Enum):
 @dataclass
 class IntentResult:
     query_type: QueryType
-    tokens: Set[str]
-    is_question: bool
-    has_numbers: bool
-    length: int
+    confidence: float
+    reason: str
+    llm_used: bool
 
 
-SPARSE_KEYWORDS = {
-    "price", "cost", "brand", "category", "cheap", "expensive", "rate"
-}
+SPARSE_KEYWORDS = {"price", "cost", "brand", "category", "cheap", "expensive", "rate"}
+DENSE_KEYWORDS = {"best", "good", "bad", "worst", "review", "recommend", "comfortable", "quality", "worth", "experience"}
+HYBRID_KEYWORDS = {"compare", "vs", "versus", "difference", "better", "between"}
 
-DENSE_KEYWORDS = {
-    "best", "good", "bad", "worst", "review",
-    "recommend", "comfortable", "quality", "worth", "experience"
-}
 
-HYBRID_KEYWORDS = {
-    "compare", "vs", "versus", "difference", "better", "between"
-}
+router_llm = OllamaLLM(model="qwen2.5:1.5b", temperature=0)
 
-router_llm = OllamaLLM("qwen2.5:1.5b")
+
+def preprocess(query: str):
+    return set(re.findall(r"\w+", query.lower()))
+
 
 def detect_query_type(tokens: Set[str]) -> QueryType:
     sparse_match = bool(tokens & SPARSE_KEYWORDS)
@@ -46,94 +44,67 @@ def detect_query_type(tokens: Set[str]) -> QueryType:
 
     if hybrid_match:
         return QueryType.COMPARISON
-
     if sparse_match and dense_match:
         return QueryType.REVIEW_QUERY
-
     if dense_match:
         return QueryType.REVIEW_QUERY
-
     if sparse_match:
         return QueryType.PRODUCT_LOOKUP
-
     return QueryType.UNKNOWN
 
 
-def is_noise(query: str, tokens: Set[str]) -> bool:
+def llm_fallback(query: str) -> IntentResult:
+    llm = router_llm
 
-    cleaned = re.sub(r"\s+", "", query)
-
-    if len(cleaned) <= 2:
-        return True
-
-    if re.fullmatch(r"[\W\d_]+", cleaned):
-        return True
-
-    if len(tokens) == 0:
-        return True
-
-    return False
-
-
-
-def llm_fallback(query:str) -> QueryType:
-
-    with tracer.start_as_current_span("router_llm_fallback") as span:
-
-        span.set_attribute("router.query", query)
+    with tracer.start_as_current_span("intent_llm_fallback") as span:
+        span.set_attribute("intent.query", query)
 
         prompt = f"""
-            You are an e-commerce query intent classifier.
-            Classify the query into one of:
-            - product_lookup
-            - review_query
-            - comparison
+        Classify query into:
+        product_lookup | review_query | comparison
 
-            Return ONLY valid JSON:
-            {{
-                "query_type": "<type>"
-            }}
+        Return ONLY JSON:
+        {{"query_type": "..."}}
 
-            Query:"{query}"
-            
+        Query: {query}
         """
 
         try:
-            raw = router_llm.invoke(prompt)
-            text = raw if isinstance(raw, str) else raw.content
-            parsed = json.loads(text.strip())
-            query_type = parsed["query_type"]
+            parsed = safe_llm_call(llm, prompt, "json")
 
-            span.set_attribute("llm.parse.status", "success")
-            return QueryType(query_type)
+            span.set_attribute("intent.llm_fallback","success")
+            span.set_attribute("llm_answer",parsed)
+
+            qtype = QueryType(parsed["query_type"])
+
+            return IntentResult(
+                query_type=qtype,
+                confidence=0.85,
+                reason="llm_classification",
+                llm_used=True
+            )
 
         except Exception as e:
+            span.set_attribute("intent.error", str(e))
 
-            span.set_attribute("llm.parse.status", "failure")
-            span.set_attribute("router.failure_reason", str(e))
-
-            return QueryType.REVIEW_QUERY
-
-
-def preprocess(query: str):
-    query = query.lower()
-    query = re.sub(r'[^\w\s]', ' ', query)
-    return query.split()
+            return IntentResult(
+                query_type=QueryType.REVIEW_QUERY,
+                confidence=0.5,
+                reason="llm_fallback_failed",
+                llm_used=True
+            )
 
 
 def analyze_intent(query: str) -> IntentResult:
-
     tokens = preprocess(query)
-
     query_type = detect_query_type(tokens)
 
-    result = IntentResult(
-        query_type=query_type,
-        tokens=tokens,
-        reason="deterministic intent extraction",
-        is_question="?" in query,
-        has_numbers=bool(re.search(r"\d", query)),
-        length=len(tokens),
-    )
+    if query_type == QueryType.UNKNOWN:
+        return llm_fallback(query)
 
-    return result
+    return IntentResult(
+        query_type=query_type,
+        confidence=0.75,
+        reason="keyword_based_intent",
+        llm_used=False
+    )

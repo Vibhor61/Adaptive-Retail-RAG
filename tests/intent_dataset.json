@@ -1,0 +1,6 @@
+[
+  {"query": "iphone price cost", "expected": "PRODUCT_LOOKUP"},
+  {"query": "iphone vs samsung compare", "expected": "COMPARISON"},
+  {"query": "best laptop review worth buying", "expected": "REVIEW_QUERY"},
+  {"query": "random asdfgh jkl", "expected": "REVIEW_QUERY"}
+]

@@ -13,7 +13,7 @@ class QueryValidity(enum.Enum):
 @dataclass
 class ValidationResult:
     validity: QueryValidity
-    confidence: float
+    validity_confidence: float
     reason: str
 
 
@@ -56,28 +56,28 @@ def is_query_valid(query: str) -> ValidationResult:
     if not cleaned:
         return ValidationResult(
             validity=QueryValidity.INVALID,
-            confidence=0.99,
+            validity_confidence=0.0,
             reason="empty query"
         )
 
     if len(cleaned) < MIN_QUERY_LENGTH:
         return ValidationResult(
             validity=QueryValidity.INVALID,
-            confidence=0.90,
+            validity_confidence=0.2,
             reason="query too short"
         )
     
     if re.fullmatch(r"[\W\d_]+", cleaned):
         return ValidationResult(
             validity=QueryValidity.INVALID,
-            confidence=0.98,
+            validity_confidence=0.2,
             reason="only symbols or numbers"
         )
 
     if len(set(cleaned)) == 1:
         return ValidationResult(
             validity=QueryValidity.INVALID,
-            confidence=0.97,
+            validity_confidence=0.2,
             reason="single repeated character"
         )
     
@@ -92,23 +92,29 @@ def is_query_valid(query: str) -> ValidationResult:
         if vr < 0.15:
             return ValidationResult(
                 validity=QueryValidity.INVALID,
-                confidence=0.80,
+                validity_confidence=0.80,
                 reason="low vowel ratio probable gibberish"
             )
 
     # entropy heuristic
     entropy = character_entropy(cleaned)
+    vr = vowel_ratio(alpha_text)
+    repetition = len(set(cleaned)) / len(cleaned)
 
-    if entropy < 1.2:
-        return ValidationResult(
-            validity=QueryValidity.INVALID,
-            confidence=0.75,
-            reason="low entropy repetitive query"
-        )
+    entropy_score = min(entropy / 4.0, 1.0)
+    repetition_score = repetition
+    length_score = min(len(cleaned) / 10.0, 1.0)
+    vowel_score = 1.0 if vr >= 0.15 else 0.4
 
-    return ValidationResult(
-        validity=QueryValidity.VALID,
-        confidence=0.92,
-        reason="query passed validation"
+    
+    score = (
+        0.4 * entropy_score +
+        0.3 * repetition_score +
+        0.2 * length_score +
+        0.1 * vowel_score
     )
 
+    if score < 0.4:
+        return ValidationResult(QueryValidity.INVALID, score, "low quality signal")
+
+    return ValidationResult(QueryValidity.VALID, score, "valid query")
