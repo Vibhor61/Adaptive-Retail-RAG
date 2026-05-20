@@ -16,6 +16,16 @@ CREATE TABLE IF NOT EXISTS products_table (
   )STORED
 );
 
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX idx_products_title_trgm
+ON products_table USING gin(title gin_trgm_ops);
+
+CREATE INDEX idx_products_brand_trgm
+ON products_table USING gin(brand gin_trgm_ops);
+
+CREATE INDEX idx_products_search_vector
+ON products_table USING gin(search_vector);
 
 CREATE TABLE IF NOT EXISTS reviews_table (
   review_id TEXT PRIMARY KEY,

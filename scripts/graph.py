@@ -2,7 +2,7 @@ from langgraph.graph import StateGraph, END
 from typing import List, Optional, Annotated, TypedDict
 import operator
 import uuid
-from router import route, RouterStatus
+from router.query_router import route, RouterStatus
 from retrieval import retreive, RetrievalStatus, RetrievalResult
 
 from scripts.generation import build_prompt, generate_answer, AnswerStatus
