@@ -82,8 +82,6 @@ def extract_metadata(obj: dict) -> Optional[Tuple[str, dict]]:
     if cat is None:
         cat = obj.get("categories") or obj.get("main_cat")
 
-    
-
     keep = {
         "asin": asin,
         "title": norm_text(obj.get("title")),
