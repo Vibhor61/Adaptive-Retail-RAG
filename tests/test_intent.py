@@ -6,7 +6,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 
-from router.intent import (
+from scripts.routing.router import (
     analyze_intent,
     llm_fallback,
     QueryType

@@ -1,5 +1,5 @@
 import pytest
-from router.validity import is_query_valid, QueryValidity
+from scripts.routing.validity import is_query_valid, QueryValidity
 
 
 def test_empty_query():

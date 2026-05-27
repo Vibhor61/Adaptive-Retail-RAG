@@ -2,7 +2,10 @@ Data/
 .env
 __pycache__/
 *.pyc
-api
+api/
 README.md
 scripts/planner.py
 answers.md
+tests/
+ragas/
+future.md
