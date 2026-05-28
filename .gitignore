@@ -2,9 +2,8 @@ Data/
 .env
 __pycache__/
 *.pyc
-api/
+serving_layer/
 README.md
-scripts/planner.py
 answers.md
 tests/
 ragas/

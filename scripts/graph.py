@@ -3,7 +3,7 @@ from typing import List, Optional, Annotated, TypedDict
 import operator
 import uuid
 from router.query_router import route, RouterStatus
-from retrieval import retreive, RetrievalStatus, RetrievalResult
+from scripts.retrieval.retrieval import retreive, RetrievalStatus, RetrievalResult
 
 from scripts.generation import build_prompt, generate_answer, AnswerStatus
 from rewrite import rewrite_query 

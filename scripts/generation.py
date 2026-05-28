@@ -3,7 +3,7 @@ import re
 from langchain_ollama import OllamaLLM
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
-from retrieval import RetrievalResult, FinalResult
+from scripts.retrieval.retrieval import RetrievalResult, FinalResult
 from dataclasses import dataclass
 import enum
 from opentelemetry import trace
