@@ -6,19 +6,22 @@ from contracts.router_contracts import (
     Intent,
     EvidenceType,
     GroundedEntity,
+    EntityStructure
 )
 
 """
 Data Model for Retrieval Input
 """
 @dataclass(frozen=True)
-class RetrievalRequest:
+class RetrievalPlan:
 
     original_query: str
 
     intent_type: Intent
 
     evidence_type: EvidenceType
+
+    entity_structure: EntityStructure
 
     grounded_entities: list[GroundedEntity]
 
