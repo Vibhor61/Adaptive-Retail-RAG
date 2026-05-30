@@ -2,7 +2,7 @@ import enum
 from dataclasses import dataclass
 from typing import List, Optional
 
-from scripts.resolver.entity_resolver import MatchResult
+from routing_layer.entity_resolver import MatchResult
 from scripts.routing.router import IntentResult, QueryType
 
 class RetrievalScope(enum.Enum):

@@ -1,6 +1,6 @@
 from opentelemetry import trace
 
-from .retrieval_models import (
+from ..contracts.retrieval_contracts import (
     RetrievalBundle,
     RetrievalExecutionStatus,
     RetrievalQualityStatus,

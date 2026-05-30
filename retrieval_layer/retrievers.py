@@ -5,7 +5,7 @@ from copy import deepcopy
 from qdrant_client import QdrantClient
 from opentelemetry import trace
 from sentence_transformers import SentenceTransformer
-from .retrieval_models import (
+from ..contracts.retrieval_contracts import (
     RetrievalResult,
     RetrievalBundle,
     RetrievalExecutionStatus,

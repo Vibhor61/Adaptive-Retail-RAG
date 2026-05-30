@@ -2,6 +2,29 @@ import enum
 
 from typing import Optional
 from dataclasses import dataclass, field
+from contracts.router_contracts import (
+    Intent,
+    EvidenceType,
+    GroundedEntity,
+)
+
+"""
+Data Model for Retrieval Input
+"""
+@dataclass(frozen=True)
+class RetrievalRequest:
+
+    original_query: str
+
+    intent_type: Intent
+
+    evidence_type: EvidenceType
+
+    grounded_entities: list[GroundedEntity]
+
+    # constraints: QueryConstraints | None
+
+    top_k: int = 5
 
 
 """
