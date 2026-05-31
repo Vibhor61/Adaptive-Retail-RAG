@@ -22,6 +22,8 @@ COLLECTION_NAME = "reviews_embeddings"
 
 BATCH_SIZE = 10000
 
+model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+
 def get_connection():
     return psycopg2.connect(**DB_CONFIG)
 
@@ -65,8 +67,6 @@ def create_embeddings(conn, df, qdrant_batch_size:int = 256):
             collection_name=COLLECTION_NAME,
             vectors_config=VectorParams(size=384, distance=Distance.COSINE)
         )
-
-    model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 
     texts = df["text"].fillna("").tolist()
     formatted_texts = [
@@ -121,7 +121,7 @@ def main():
 
     except Exception as e:
         conn.rollback()
-        raise ("Error during embeddings", e)
+        raise 
     finally:
         conn.close()
 

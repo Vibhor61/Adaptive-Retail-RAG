@@ -8,7 +8,7 @@ from routing_layer.entity_resolver import GroundedEntity
 
 class RoutingResult(BaseModel):
 
-    original_query: str
+    normalized_query: str
 
     validity_result: ValidationResult
 

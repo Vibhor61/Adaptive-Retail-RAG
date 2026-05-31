@@ -29,6 +29,12 @@ class RetrievalPlan:
 
     top_k: int = 5
 
+    # retrieval_attempt: int = 0
+
+    # rewritten_query: str | None = None
+
+    # controller_actions: list[str] = Field(default_factory=list)
+
 
 """
 Data Models for Retreival Execution

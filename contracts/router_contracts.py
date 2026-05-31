@@ -51,7 +51,7 @@ class RouterOutput(BaseModel):
 
     evidence_type: EvidenceType
 
-    constraints: QueryConstraints | None
+    # constraints: QueryConstraints | None = None
 
     confidence: float = Field(
         ge=0.0,
@@ -125,8 +125,7 @@ class MatchType(enum.Enum):
     NONE = "none"
 
 
-@dataclass
-class GroundedEntity:
+class GroundedEntity(BaseModel):
     match_type: MatchType
     raw_entity: str
     canonical_entity: Optional[str]

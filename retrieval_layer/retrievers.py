@@ -33,10 +33,10 @@ def get_connection():
 
 
 # Replace raw query here with grounded entities after stabilization
-def sparse_fact_retrieval(query: str, top_k: int = 5) -> RetrievalBundle:
+def sparse_fact_retrieval(entity: str, top_k: int = 5) -> RetrievalBundle:
     
     with tracer.start_as_current_span("sparse_fact_retrieval") as span:
-        span.set_attribute("retrieval.query", query)
+        span.set_attribute("retrieval.entity", entity)
         span.set_attribute("retrieval.top_k", top_k)
         span.set_attribute("retrieval.source", "postgres_bm25")
         
@@ -53,7 +53,7 @@ def sparse_fact_retrieval(query: str, top_k: int = 5) -> RetrievalBundle:
                     LIMIT %s;
                 """
                 
-                cur.execute(sql_query, (query, query, top_k))
+                cur.execute(sql_query, (entity, entity, top_k))
                 results = cur.fetchall() 
 
             retrieval_results = []
@@ -85,7 +85,7 @@ def sparse_fact_retrieval(query: str, top_k: int = 5) -> RetrievalBundle:
             )
 
             return RetrievalBundle(
-                query=query,
+                entity=entity,
                 retrieval_type="sparse_product",
                 execution_status=RetrievalExecutionStatus.SUCCESS,
                 items=retrieval_results,
@@ -97,7 +97,7 @@ def sparse_fact_retrieval(query: str, top_k: int = 5) -> RetrievalBundle:
             span.record_exception(e)
 
             return RetrievalBundle(
-                query=query,
+                entity=entity,
                 retrieval_type="sparse_product",
                 execution_status=RetrievalExecutionStatus.FAILURE,
                 items=[],
@@ -155,7 +155,7 @@ def review_fts_retrieval(query: str, top_k: int = 5) -> RetrievalBundle:
             span.set_attribute("retrieval.hit_count",len(retrieval_results),)
 
             score_values = [float(row[4]) for row in results] if results else [] 
-            top_score = sum(score_values) if score_values else 0.0
+            top_score = max(score_values) if score_values else 0.0
             avg_score = sum(score_values)/len(score_values) if score_values else 0.0
 
             raw_signals = RetrievalRawSignals(
@@ -223,8 +223,8 @@ def dense_review_retrieval(query: str, top_k: int = 5) -> RetrievalBundle:
 
             span.set_attribute("retrieval.hit_count", len(retrieval_results))
 
-            score_values = [float(row[4]) for row in search_result] if search_result else [] 
-            top_score = sum(score_values) if score_values else 0.0
+            score_values = [float(item.score) for item in search_result] if search_result else [] 
+            top_score = max(score_values) if score_values else 0.0
             avg_score = sum(score_values)/len(score_values) if score_values else 0.0
 
             raw_signals = RetrievalRawSignals(
@@ -336,3 +336,63 @@ def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60) -> Retrieva
                 raw_signals=raw_signals,
                 failure_reason=str(e)
             )
+        
+
+def candidate_gen_retrieval(query: str, top_k: int = 5) -> RetrievalBundle:
+
+    with tracer.start_as_current_span as span:
+        span.set_attribute("retrieval.query", query)
+        span.set_attribute("retrieval.top_k", top_k)
+        span.set_attribute("retrieval.source", "candidate_gen") 
+
+        try: 
+            sparse_bundle = sparse_fact_retrieval(query, 20)
+
+            fts_bundle = review_fts_retrieval(query, 20)
+
+            seen: set[str] = set()
+            deduplicated: list[RetrievalResult] = []
+ 
+            for item in (sparse_bundle.items + fts_bundle.items):
+                if item.asin and item.asin not in seen:
+                    seen.add(item.asin)
+                    deduplicated.append(item)
+ 
+            candidates = deduplicated[:top_k]
+ 
+            span.set_attribute("retrieval.candidate_count", len(candidates))
+
+            score_values = [item.score for item in candidates]
+            top_score = max(score_values) if score_values else 0.0
+            avg_score = sum(score_values) / len(score_values) if score_values else 0.0
+ 
+            raw_signals = RetrievalRawSignals(
+                top_score=top_score,
+                avg_score=avg_score,
+                score_distribution=score_values,
+            )
+ 
+            return RetrievalBundle(
+                query=query,
+                retrieval_type="candidate_gen",
+                execution_status=RetrievalExecutionStatus.SUCCESS,
+                items=candidates,
+                raw_signals=raw_signals,
+            )
+ 
+        except Exception as e:
+            span.record_exception(e)
+ 
+            return RetrievalBundle(
+                query=query,
+                retrieval_type="candidate_gen",
+                execution_status=RetrievalExecutionStatus.FAILURE,
+                items=[],
+                raw_signals=RetrievalRawSignals(
+                    top_score=0.0,
+                    avg_score=0.0,
+                    score_distribution=[],
+                ),
+                failure_reason=str(e),
+            )
+        

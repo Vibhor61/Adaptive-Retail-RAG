@@ -1,3 +1,5 @@
+from opentelemetry import trace
+
 from contracts.orchestration_contracts import RoutingResult
 
 from routing_layer.validity import (
@@ -21,25 +23,33 @@ from routing_layer.entity_resolver import (
     DBEntityLoader
 )
 
+tracer = trace.get_tracer(__name__)
+
 def run_router_pipeline(query: str) -> RoutingResult:
 
-    validity_result = validate_query_structure(query)
+    with tracer.start_as_current_span("router_pipeline") as span:
+        
+        span.set_attribute("router.query", query)
 
-    router_output = analyze_intent(query)
+        validity_result = validate_query_structure(query)
+        normalized_query = validity_result.normalized_query
 
-    structural_result = run_structural_guardrails(router_output)
+        router_output = analyze_intent(normalized_query)
 
-    semantic_result = run_semantic_validation(router_output)
-    
-    # resolve extracted entities to canonical product identifiers/names
-    entities_texts = [e.text for e in router_output.entities]
-    resolver = EntityResolver(DBEntityLoader)
-    grounded_entities = resolver.resolve(entities_texts)
-    
-    return RoutingResult(
-        validity_result=validity_result,
-        router_output=router_output,
-        structural_result=structural_result,
-        semantic_result=semantic_result,
-        grounded_entities=grounded_entities
-    )  
+        structural_result = run_structural_guardrails(router_output)
+
+        semantic_result = run_semantic_validation(normalized_query, router_output)
+        
+        # resolve extracted entities to canonical product identifiers/names
+        entities_texts = [e.text for e in router_output.entities]
+        resolver = EntityResolver(DBEntityLoader())
+        grounded_entities = resolver.resolve(entities_texts)
+        
+        return RoutingResult(
+            normalized_query=normalized_query,
+            validity_result=validity_result,
+            router_output=router_output,
+            structural_result=structural_result,
+            semantic_result=semantic_result,
+            grounded_entities=grounded_entities
+        )  

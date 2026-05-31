@@ -123,19 +123,22 @@ def _check_entity_structure(output: RouterOutput) -> List[StructuralViolation]:
 
 
 def _check_duplicate_entities(output: RouterOutput):
-    violations : List[StructuralViolation]
+    violations : List[StructuralViolation] = []
 
     entities_seen = set()
 
-    for _, entity in enumerate(output.entities):
+    for entity in output.entities:
         if entity.text in entities_seen:
             violations.append(
                 StructuralViolation(
                     field="entities",
-                    reaason=(f"duplicated entities found {entity.text}"),
+                    reason=(f"duplicated entities found {entity.text}"),
                     severity=ViolationSeverity.WARNING
                 )
             )
+            entities_seen.add(entity.text)
+    
+    return violations
 
 def run_structural_guardrails(output: RouterOutput) -> StructuralGuardrailResult:
     with tracer.start_as_current_span("structural_guardrails") as span:

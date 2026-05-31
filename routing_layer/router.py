@@ -20,8 +20,6 @@ def analyze_intent(query: str) -> RouterOutput:
 
     with tracer.start_as_current_span("intent_router") as span:
         
-        span.set_attribute("intent.query", query)
-        
         prompt = f"""
         You are a semantic router for a retail RAG system.
         Your responsibility is query understanding only.
@@ -212,7 +210,7 @@ def analyze_intent(query: str) -> RouterOutput:
         --------------------------------------------------
 
         {{
-        "intent": "...",
+        "intent_type": "...",
         "entities": [
             {{
             "text": "...",
