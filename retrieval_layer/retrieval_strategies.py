@@ -1,6 +1,10 @@
+import logging
+from opentelemetry import trace
+
 from contracts.router_contracts import (
     EvidenceType,
     EntityStructure,
+    GroundedEntity
 )
 
 from contracts.retrieval_contracts import (
@@ -18,104 +22,166 @@ from retrieval_layer.retrievers import (
     candidate_gen_retrieval,
 )
 
-from retrieval_layer.retrieval_evaluation import evaluate_retrieval
+from retrieval_layer.retrieval_validation import evaluate_retrieval
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
-def sparse_for_entity(entity, top_k: int) -> RetrievalEvaluationBundle:
+def sparse(entity: GroundedEntity|None, query: str, top_k: int) -> RetrievalEvaluationBundle:
     bundle = sparse_fact_retrieval(
-        entity=entity.canonical_entity,
+        entity=entity.canonical_entity if entity else None,
+        query=query,
         top_k=top_k,
     )
     return evaluate_retrieval(bundle)
 
 
-def fusion_for_entity(entity, query: str, top_k: int) -> RetrievalEvaluationBundle:
+def fusion(query: str, top_k: int) -> RetrievalEvaluationBundle:
     bundle = fusion_retrieval(
-        query=entity.canonical_entity or query,
+        query=query,
         top_k=top_k,
     )
     return evaluate_retrieval(bundle)
 
 
-def sparse_and_fusion_for_entity(entity, query: str, top_k: int) -> list[RetrievalEvaluationBundle]:
-    return [
-        sparse_for_entity(entity, top_k),
-        fusion_for_entity(entity, query, top_k),
-    ]
-
-
-def by_evidence(plan: RetrievalPlan, entity) -> list[RetrievalEvaluationBundle]:
-    """Dispatch to the right primitive(s) based on evidence type for a single entity."""
-    if plan.evidence_type == EvidenceType.FACTUAL:
-        return [sparse_for_entity(entity, plan.top_k)]
-
-    elif plan.evidence_type == EvidenceType.EXPERIENTIAL:
-        return [fusion_for_entity(entity, plan.original_query, plan.top_k)]
-
-    elif plan.evidence_type == EvidenceType.MIXED:
-        return sparse_and_fusion_for_entity(entity, plan.original_query, plan.top_k)
-
-    raise NotImplementedError(
-        f"evidence_type '{plan.evidence_type}' not handled — adaptive routing required."
+def recommendation_candidate_gen(query: str, top_k: int) -> RetrievalEvaluationBundle:
+    bundle = candidate_gen_retrieval(
+        query=query, 
+        top_k=top_k
     )
+    return evaluate_retrieval(bundle)
+
+
+def by_evidence_single(entity: GroundedEntity|None, query: str, evidence_type: EvidenceType, top_k: int) -> list[RetrievalEvaluationBundle]:
+
+    if evidence_type == EvidenceType.FACTUAL:
+        return[sparse(entity, query, top_k)]
+    
+    elif evidence_type == EvidenceType.EXPERIENTIAL:
+        return [fusion(query, top_k)]
+ 
+    elif evidence_type == EvidenceType.MIXED:
+        return [sparse(entity, query, top_k), fusion(query, top_k)]
+ 
+    raise NotImplementedError(
+        f"evidence_type '{evidence_type}' not handled — adaptive routing required."
+    )
+
+
+def by_evidence_multi(entities: list[GroundedEntity], query: str, evidence_type: EvidenceType, top_k: int) -> list[RetrievalEvaluationBundle]:
+ 
+    bundles: list[RetrievalEvaluationBundle] = []
+ 
+    if evidence_type == EvidenceType.FACTUAL:
+        for entity in entities:
+            bundles.append(sparse(entity, query, top_k))
+ 
+    elif evidence_type == EvidenceType.EXPERIENTIAL:
+        bundles.append(fusion(query, top_k))
+ 
+    elif evidence_type == EvidenceType.MIXED:
+        for entity in entities:
+            bundles.append(sparse(entity, query, top_k))
+        bundles.append(fusion(query, top_k))
+ 
+    else:
+        raise NotImplementedError(
+            f"evidence_type '{evidence_type}' not handled — adaptive routing required."
+        )
+ 
+    return bundles
 
 
 def lookup_workflow(plan: RetrievalPlan) -> RetrievalLayerOutput:
-    evaluation_bundles: list[RetrievalEvaluationBundle] = []
+    
+    with tracer.start_as_current_span("lookup_workflow") as span:
+        span.set_attribute("retrieval.entity_structure", plan.entity_structure.value)
+        span.set_attribute("retrieval.evidence_type", plan.evidence_type.value)
+        span.set_attribute("retrieval.top_k", plan.top_k)
 
-    if plan.entity_structure in (EntityStructure.SINGLE, EntityStructure.MULTI_EXPLICIT):
-        for entity in plan.grounded_entities:
-            evaluation_bundles.extend(by_evidence(plan, entity))
+        bundles : list[RetrievalEvaluationBundle] = []
+        if plan.entity_structure == EntityStructure.SINGLE:
+            bundles.extend(by_evidence_single(
+                plan.grounded_entities[0],
+                plan.original_query,
+                plan.evidence_type,
+                plan.top_k,
+            ))
+ 
+        elif plan.entity_structure == EntityStructure.MULTI_EXPLICIT:
+            bundles.extend(by_evidence_multi(
+                plan.grounded_entities,
+                plan.original_query,
+                plan.evidence_type,
+                plan.top_k,
+            ))
 
-    elif plan.entity_structure in (EntityStructure.MULTI_IMPLICIT, EntityStructure.NONE):
-        # No grounded entities — fall back to raw query fusion
-        bundle = fusion_retrieval(query=plan.original_query, top_k=plan.top_k)
-        evaluation_bundles.append(evaluate_retrieval(bundle))
+        elif plan.entity_structure in (EntityStructure.MULTI_IMPLICIT, EntityStructure.NONE):
+            bundles.append(fusion(plan.original_query, plan.top_k))
 
-    else:
-        raise NotImplementedError(
-            f"entity_structure '{plan.entity_structure}' not handled in lookup — adaptive routing required."
-        )
+        else:
+            raise NotImplementedError(
+                f"entity_structure '{plan.entity_structure}' not handled in lookup — adaptive routing required."
+            )
 
-    return RetrievalLayerOutput(plan=plan, evaluation_bundles=evaluation_bundles)
-
-
+        span.set_attribute("retrieval.bundle_count", len(bundles))
+        logger.debug("lookup_workflow produced %d bundles", len(bundles))
+        return RetrievalLayerOutput(plan=plan, evaluation_bundles=bundles)
+    
 
 def comparison_workflow(plan: RetrievalPlan) -> RetrievalLayerOutput:
 
-    evaluation_bundles: list[RetrievalEvaluationBundle] = []
+    with tracer.start_as_current_span("comparison_workflow") as span:
+        span.set_attribute("retrieval.entity_structure", plan.entity_structure.value)
+        span.set_attribute("retrieval.evidence_type", plan.evidence_type.value)
+        span.set_attribute("retrieval.top_k", plan.top_k)
 
-    if plan.entity_structure == EntityStructure.MULTI_EXPLICIT:
-        for entity in plan.grounded_entities:
-            evaluation_bundles.extend(by_evidence(plan, entity))
+        bundles: list[RetrievalEvaluationBundle] = []
 
-    else:
-        raise NotImplementedError(
-            f"comparison with entity_structure '{plan.entity_structure}' "
-            "is ambiguous — adaptive routing required."
+        if plan.entity_structure != EntityStructure.MULTI_EXPLICIT:
+            raise NotImplementedError(
+                f"comparison with entity_structure '{plan.entity_structure}' "
+                "is ambiguous — adaptive routing required."
+            )
+ 
+        bundles = by_evidence_multi(
+            plan.grounded_entities,
+            plan.original_query,
+            plan.evidence_type,
+            plan.top_k,
         )
-
-    return RetrievalLayerOutput(plan=plan, evaluation_bundles=evaluation_bundles)
-
+ 
+        span.set_attribute("retrieval.bundle_count", len(bundles))
+        logger.debug("comparison_workflow produced %d bundles", len(bundles))
+        return RetrievalLayerOutput(plan=plan, evaluation_bundles=bundles)
 
 def recommendation_workflow(plan: RetrievalPlan) -> RetrievalLayerOutput:
   
-    evaluation_bundles: list[RetrievalEvaluationBundle] = []
-
-    if plan.entity_structure in (EntityStructure.MULTI_IMPLICIT, EntityStructure.NONE):
-        bundle = candidate_gen_retrieval(query=plan.original_query, top_k=plan.top_k)
-        evaluation_bundles.append(evaluate_retrieval(bundle))
-
-    elif plan.entity_structure == EntityStructure.SINGLE:
-        entity = plan.grounded_entities[0]
-        evaluation_bundles.extend(
-            sparse_and_fusion_for_entity(entity, plan.original_query, plan.top_k)
-        )
-
-    else:
-        raise NotImplementedError(
-            f"recommendation with entity_structure '{plan.entity_structure}' "
-            "not handled — adaptive routing required."
-        )
-
-    return RetrievalLayerOutput(plan=plan, evaluation_bundles=evaluation_bundles)
+    with tracer.start_as_current_span("recommendation_workflow") as span:
+        span.set_attribute("retrieval.entity_structure", plan.entity_structure.value)
+        span.set_attribute("retrieval.evidence_type", plan.evidence_type.value)
+        span.set_attribute("retrieval.top_k", plan.top_k)
+ 
+        bundles: list[RetrievalEvaluationBundle] = []
+ 
+        if plan.entity_structure in (EntityStructure.MULTI_IMPLICIT, EntityStructure.NONE):
+            bundles.append(recommendation_candidate_gen(plan.original_query, plan.top_k))
+ 
+        elif plan.entity_structure == EntityStructure.SINGLE:
+            bundles.extend(by_evidence_single(
+                plan.grounded_entities[0],
+                plan.original_query,
+                EvidenceType.MIXED,
+                plan.top_k,
+            ))
+ 
+        else:
+            raise NotImplementedError(
+                f"recommendation with entity_structure '{plan.entity_structure}' "
+                "not handled — adaptive routing required."
+            )
+ 
+        span.set_attribute("retrieval.bundle_count", len(bundles))
+        logger.debug("recommendation_workflow produced %d bundles", len(bundles))
+        return RetrievalLayerOutput(plan=plan, evaluation_bundles=bundles)

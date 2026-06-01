@@ -1,8 +1,11 @@
-import enum
 import re
 import unicodedata
 
-from dataclasses import dataclass, field
+from contracts.router_contracts import(
+    ValidationResult,
+    ValidityStatus,
+    ValidityFlags
+)
 
 
 MAX_QUERY_LENGTH = 500
@@ -13,41 +16,6 @@ MAX_SYMBOL_RATIO = 0.45
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 REPEATED_SYMBOL_PATTERN = re.compile(r"([^\w\s])\1{3,}")
 REPEATED_CHAR_PATTERN = re.compile(r"(.)\1{6,}")
-
-
-class ValidityStatus(enum.Enum):
-    EXECUTABLE = "executable"
-
-    SUSPICIOUS = "suspicious"
-
-    DEGRADED = "degraded"
-
-
-class ValidityFlags(enum.Enum):
-    EMPTY_QUERY = "empty_query"
-
-    EXCESSIVE_LENGTH = "excessive_length"
-
-    HARD_LENGTH_REJECT = "hard_length_reject"
-
-    CONTROL_CHARACTERS = "control_characters_detected"
-
-    SYMBOL_SPAM = "symbol_spam_detected"
-
-    CHARACTER_FLOOD = "character_flood_detected"
-
-    HIGH_SYMBOL_RATIO = "high_symbol_ratio"
-
-
-@dataclass(frozen=True)
-class ValidationResult:
-    status: ValidityStatus
-
-    normalized_query: str
-
-    word_count: int
-
-    anomaly_flags: list[ValidityFlags] = field(default_factory=list)
 
 
 def _degraded(flag: ValidityFlags, normalized: str, word_count: int) -> ValidationResult:

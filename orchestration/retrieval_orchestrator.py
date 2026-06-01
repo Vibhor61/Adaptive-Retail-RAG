@@ -1,5 +1,8 @@
+from opentelemetry import trace
+
 from contracts.orchestration_contracts import (
-    RoutingResult
+    RouterLayerOutput,
+    RetrievalLayerOutput,
 )
 
 from contracts.router_contracts import (
@@ -8,7 +11,6 @@ from contracts.router_contracts import (
 
 from contracts.retrieval_contracts import (
     RetrievalPlan,
-    RetrievalEvaluationBundle
 )
 
 from retrieval_layer.retrieval_strategies import (
@@ -17,35 +19,42 @@ from retrieval_layer.retrieval_strategies import (
     recommendation_workflow
 )
 
-def make_retrieval_plan(input: RoutingResult)->RetrievalPlan:
+
+tracer = trace.get_tracer(__name__)
+
+def make_retrieval_plan(input: RouterLayerOutput)->RetrievalPlan:
 
     return RetrievalPlan(
-        original_query=RoutingResult.original_query,
-        intent_type=RoutingResult.router_output.intent_type,
-        evidence_type=RoutingResult.router_output.evidence_type,
-        grounded_entities=RoutingResult.grounded_entities,
-        entity_structure=RoutingResult.router_output.entity_structure
+        original_query =input.normalized_query,
+        intent_type=input.router_output.intent_type,
+        evidence_type=input.router_output.evidence_type,
+        grounded_entities=input.grounded_entities,
+        entity_structure=input.router_output.entity_structure
     )
 
-def retrieve(input: RoutingResult)->RetrievalEvaluationBundle:
+def retrieve(input: RouterLayerOutput) -> RetrievalLayerOutput:
     
-    plan = make_retrieval_plan(input)
+    with tracer.start_as_current_span("retrieval_pipeline") as span:
 
-    if plan.intent_type == Intent.LOOKUP:
-        return lookup_workflow(plan)
- 
-    elif plan.intent_type == Intent.COMPARISON:
-        return comparison_workflow(plan)
- 
-    elif plan.intent_type == Intent.RECOMMENDATION:
-        return recommendation_workflow(plan)
- 
-    elif plan.intent_type == Intent.UNKNOWN:
-        raise NotImplementedError(
-            "intent 'unknown' cannot be routed — adaptive routing required."
+        plan = make_retrieval_plan(input)
+        
+        span.set_attribute("retrieval.query", plan.original_query)
+        
+        if plan.intent_type == Intent.LOOKUP:
+            return lookup_workflow(plan)
+    
+        elif plan.intent_type == Intent.COMPARISON:
+            return comparison_workflow(plan)
+    
+        elif plan.intent_type == Intent.RECOMMENDATION:
+            return recommendation_workflow(plan)
+    
+        elif plan.intent_type == Intent.UNKNOWN:
+            raise NotImplementedError(
+                "intent 'unknown' cannot be routed — adaptive routing required."
+            )
+    
+        raise ValueError(
+            f"Unrecognised intent_type: '{plan.intent_type}' — this should never happen."
         )
- 
-    raise ValueError(
-        f"Unrecognised intent_type: '{plan.intent_type}' — this should never happen."
-    )
 

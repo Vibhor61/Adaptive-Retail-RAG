@@ -1,18 +1,38 @@
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 
-# Data Models for Router orchestration output
-from router_contracts import RouterOutput, SemanticValidationResult, StructuralGuardrailResult
-from routing_layer.validity import ValidationResult
-from routing_layer.entity_resolver import GroundedEntity
+from contracts.router_contracts import (
+    RouterResult,
+    SemanticValidationResult,
+    StructuralGuardrailResult,
+    ValidationResult,
+    GroundedEntity,
+)
 
-class RoutingResult(BaseModel):
+from contracts.retrieval_contracts import (
+    RetrievalPlan,
+    RetrievalEvaluationBundle,
+)
+
+from contracts.generation_contracts import (
+    ValidationSignals,
+    GenerationStatus,
+    GeneratedCitation,
+    GenerationValidationResult
+)
+
+"""
+Data Models for Router Layer Output
+"""
+
+
+class RouterLayerOutput(BaseModel):
 
     normalized_query: str
 
     validity_result: ValidationResult
 
-    router_output: RouterOutput
+    router_output: RouterResult
 
     structural_result: StructuralGuardrailResult
 
@@ -24,10 +44,27 @@ class RoutingResult(BaseModel):
 """
 Data Model for Retrieval Layer Output
 """
-from retrieval_contracts import RetrievalPlan, RetrievalEvaluationBundle
 
 class RetrievalLayerOutput(BaseModel):
 
     plan: RetrievalPlan
 
     evaluation_bundles: list[RetrievalEvaluationBundle]
+
+
+"""
+Data Model for Generation Layer Output
+"""
+
+class GenerationLayerOutput(BaseModel): 
+    answer: str 
+
+    # model_used: str 
+
+    citations: list[GeneratedCitation]
+
+    validation_result: GenerationValidationResult
+
+    failure_reason: Optional[str] = None
+    
+    failure_details: Optional[str] = None

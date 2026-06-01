@@ -1,8 +1,8 @@
+import logging
 import psycopg2
 import os
-import enum
-from dataclasses import dataclass
-from typing import Optional, List
+
+from typing import  List
 from phoenix_connection import trace_db_query
 
 from contracts.router_contracts import (
@@ -18,12 +18,9 @@ DB_CONFIG = {
     "port": int(os.getenv("POSTGRES_PORT", 5432))
 }
 
-ALLOWED_FIELDS = {"asin", "title", "brand"}
-FUZZY_FIELDS = {"title", "brand"}
+logger = logging.getLogger(__name__)
+
 MIN_FUZZY_SCORE = 0.40
-
-
-
 
 
 class DBEntityLoader:
@@ -39,15 +36,15 @@ class DBEntityLoader:
             CASE 
                 WHEN LOWER(title) = LOWER(%s) THEN 'exact'
                 WHEN LOWER(brand) = LOWER(%s) THEN 'exact'
-                WHEN title %% %s THEN 'fuzzy'
-                WHEN search_vector @@ websearch_to_tsquery(%s) THEN 'fts'
+                WHEN title %% %s AND similarity(title,%s) > 0.40 THEN 'fuzzy'
+                WHEN search_vector @@ websearch_to_tsquery(%s) THEN 'fts_product'
                 ELSE 'none'
             END AS match_type,
 
             CASE 
                 WHEN LOWER(title) = LOWER(%s) THEN 1.0
                 WHEN LOWER(brand) = LOWER(%s) THEN 1.0
-                WHEN title %% %s THEN similarity(%s, title)
+                WHEN title %% %s AND similarity(title, %s) > 0.40 THEN similarity(%s, title)
                 ELSE ts_rank_cd(search_vector, websearch_to_tsquery(%s))
             END AS score
 
@@ -60,17 +57,20 @@ class DBEntityLoader:
 
         LIMIT 20;
         """
+        
+        try:
 
-        with self.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                query,
-                (entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity)
-            )
-            rows = cur.fetchall()
+            with self.connect() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    query,
+                    (entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity)
+                )
+                return cur.fetchall()
 
-        return rows
-    
+        except Exception as e:
+            logger.error("DBEntityLoader candidte search failed for %r : %s", entity, e)
+            return []
 
 class EntityResolver:
 
@@ -93,7 +93,7 @@ class EntityResolver:
         type_weight = {
             MatchType.EXACT: 1.0,
             MatchType.FUZZY: 0.7,
-            MatchType.FTS: 0.5,
+            MatchType.FTS_PRODUCT: 0.5,
             MatchType.NONE: 0.0
         }
 
@@ -126,8 +126,19 @@ class EntityResolver:
         results = []
 
         for entity in entities:
-            rows = self.loader.candidate_search(entity)
-            grounded = self._rank(entity, rows)
-            results.append(grounded)
+            
+            try:
+                rows = self.loader.candidate_search(entity)
+                grounded = self._rank(entity, rows)
+                results.append(grounded)
+
+            except Exception as e:
+                logger.error("EntityResolver.resolve failed for entity=%r: %s", entity, e)
+                results.append(GroundedEntity(
+                    raw_entity=entity,
+                    canonical_entity=None,
+                    match_type=MatchType.NONE,
+                    score=0.0
+                ))
 
         return results

@@ -1,7 +1,7 @@
 import enum 
 
 from typing import Optional
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 from contracts.router_contracts import (
     Intent,
     EvidenceType,
@@ -12,8 +12,7 @@ from contracts.router_contracts import (
 """
 Data Model for Retrieval Input
 """
-@dataclass(frozen=True)
-class RetrievalPlan:
+class RetrievalPlan(BaseModel):
 
     original_query: str
 
@@ -45,8 +44,7 @@ class RetrievalExecutionStatus(enum.Enum):
     FAILURE = "failure"
 
 
-@dataclass(frozen=True)
-class RetrievalResult:
+class RetrievalResult(BaseModel):
     source: str
 
     doc_id: str
@@ -61,11 +59,10 @@ class RetrievalResult:
 
     review_id: Optional[int] = None
 
-    metadata: dict = field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class RetrievalRawSignals:
+class RetrievalRawSignals(BaseModel):
     top_score: float
 
     avg_score: float
@@ -73,9 +70,10 @@ class RetrievalRawSignals:
     score_distribution: list[float]
 
 
-@dataclass(frozen=True)
-class RetrievalBundle:
-    query: str
+class RetrievalBundle(BaseModel):
+    entity: Optional[str] = None  
+    
+    query: Optional[str] = None
 
     retrieval_type: str
 
@@ -99,33 +97,23 @@ class RetrievalQualityStatus(enum.Enum):
     FAILED = "failed"
 
 
-@dataclass(frozen=True)
-class RetrievalEvaluationSignals:
+class RetrievalEvaluationSignals(BaseModel):
     retrieval_type: str
 
     total_items: int
 
-    top_score: float
-    avg_score: float
-
-    unique_asins: Optional[int]
-
-    score_variance: float
-
-    lexical_dense_overlap: Optional[int] = None
-
+    unique_asins: int
 
 
 """
 Data Model for Final Output
 """
-@dataclass(frozen=True)
-class RetrievalEvaluationBundle:
+class RetrievalEvaluationBundle(BaseModel):
     bundle: RetrievalBundle
 
-    quality_status: RetrievalQualityStatus
+    query: str | None = None
 
-    confidence: float
+    quality_status: RetrievalQualityStatus
 
     signals: RetrievalEvaluationSignals
 

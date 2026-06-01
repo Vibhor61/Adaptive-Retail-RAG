@@ -1,10 +1,9 @@
-from typing import List
 from opentelemetry import trace
 from langchain_ollama import OllamaLLM
 
 from utils import safe_llm_call
 from contracts.router_contracts import (
-    RouterOutput,
+    RouterResult,
     Intent,
     EntityStructure,
     EvidenceType
@@ -16,7 +15,7 @@ tracer = trace.get_tracer(__name__)
 router_llm = OllamaLLM(model="qwen2.5:7b", temperature=0)
 
 
-def analyze_intent(query: str) -> RouterOutput:
+def analyze_intent(query: str) -> RouterResult:
 
     with tracer.start_as_current_span("intent_router") as span:
         
@@ -237,11 +236,12 @@ def analyze_intent(query: str) -> RouterOutput:
             parsed = safe_llm_call(router_llm, prompt, "json")
             span.set_attribute("router.raw_response",str(parsed))
 
-            validated = RouterOutput(**parsed)
+            validated = RouterResult(**parsed)
             
             span.set_attribute("router.intent_type", validated.intent_type.value)
             span.set_attribute("router.query_entities", str(validated.entities))
             span.set_attribute("router.confidence", validated.confidence)
+            span.set_attribute("router.evidence_type", validated.evidence_type)
             span.set_attribute("router.status", "success")
 
             return validated

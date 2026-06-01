@@ -2,13 +2,14 @@ from opentelemetry import trace
 from langchain_ollama import OllamaLLM
 
 from contracts.router_contracts import (
-    RouterOutput, SemanticValidationResult, SemanticAnomalyType
+    RouterResult, SemanticValidationResult, SemanticAnomalyType
 )
 
 from utils import safe_llm_call
-
+import logging
 
 tracer = trace.get_tracer(__name__)
+logger = logging.getLogger(__name__)
 
 semantic_validator_llm = OllamaLLM(
     model="qwen2.5:7b",
@@ -16,11 +17,10 @@ semantic_validator_llm = OllamaLLM(
 )
 
 
-def run_semantic_validation(query: str, router_output: RouterOutput) -> SemanticValidationResult:
+def run_semantic_validation(query: str, router_output: RouterResult) -> SemanticValidationResult:
         
     with tracer.start_as_current_span("semantic_validator") as span:
 
-        span.set_attribute("semantic.query", query)
         span.set_attribute("semantic.entities", [e.text for e in router_output.entities])
         span.set_attribute("semantic.entity_structure", router_output.entity_structure.value)
         span.set_attribute("semantic.evidence_type", router_output.evidence_type.value)
@@ -125,31 +125,19 @@ def run_semantic_validation(query: str, router_output: RouterOutput) -> Semantic
 
         try:
 
-            parsed = safe_llm_call(
-                semantic_validator_llm,
-                prompt,
-                "json"
-            )
+            parsed = safe_llm_call(semantic_validator_llm, prompt, "json")
 
-            validated = SemanticValidationResult(
-                **parsed
-            )
-
-            span.set_attribute(
-                "semantic.semantic_valid",
-                validated.semantic_valid
-            )
-
-            span.set_attribute(
-                "semantic.semantic_score",
-                validated.semantic_score
-            )
-
+            validated = SemanticValidationResult(**parsed)
+            if not validated.semantic_valid:
+                logger.warning("Semantic validation failed score=%s and anomalies=%s",validated.semantic_score, validated.anomaly_signals)
+                
+            span.set_attribute("semantic.semantic_valid",validated.semantic_valid)
+            span.set_attribute("semantic.semantic_score",validated.semantic_score)
+            
             span.set_attribute(
                 "semantic.anomalies",
                 str([
-                    a.value
-                    for a in validated.anomaly_signals
+                    a.value for a in validated.anomaly_signals
                 ])
             )
 
@@ -158,12 +146,9 @@ def run_semantic_validation(query: str, router_output: RouterOutput) -> Semantic
         except Exception as e:
 
             span.record_exception(e)
+            span.set_attribute("semantic.status","error")
 
-            span.set_attribute(
-                "semantic.status",
-                "error"
-            )
-
+            logger.error("Semantic validation error: %s", e)
             return SemanticValidationResult(
                 semantic_valid=False,
                 semantic_score=0.0,

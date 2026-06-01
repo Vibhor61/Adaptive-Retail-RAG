@@ -4,6 +4,43 @@ from pydantic import BaseModel, Field
 from typing import List, Any, Optional
 
 """
+Data Models for Router Pre-Validation
+"""
+
+class ValidityStatus(enum.Enum):
+    EXECUTABLE = "executable"
+    SUSPICIOUS = "suspicious"
+    DEGRADED = "degraded"
+
+
+class ValidityFlags(enum.Enum):
+
+    EMPTY_QUERY = "empty_query"
+
+    EXCESSIVE_LENGTH = "excessive_length"
+
+    HARD_LENGTH_REJECT = "hard_length_reject"
+
+    CONTROL_CHARACTERS = "control_characters_detected"
+
+    SYMBOL_SPAM = "symbol_spam_detected"
+
+    CHARACTER_FLOOD = "character_flood_detected"
+
+    HIGH_SYMBOL_RATIO = "high_symbol_ratio"
+
+
+class ValidationResult(BaseModel):
+    status: ValidityStatus
+    
+    normalized_query: str
+
+    word_count: int
+
+    anomaly_flags: list[ValidityFlags] = Field(default_factory=list)
+
+
+"""
 Data Models for Router Hypotheses and Decisions
 """
 
@@ -39,7 +76,7 @@ class QueryConstraints(BaseModel):
     raw_constraints: dict[str, Any] = Field(default_factory=dict)
 
 
-class RouterOutput(BaseModel):
+class RouterResult(BaseModel):
    
     intent_type: Intent
 
@@ -51,7 +88,7 @@ class RouterOutput(BaseModel):
 
     evidence_type: EvidenceType
 
-    # constraints: QueryConstraints | None = None
+    constraints: QueryConstraints | None = None
 
     confidence: float = Field(
         ge=0.0,

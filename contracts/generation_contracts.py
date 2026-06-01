@@ -1,6 +1,18 @@
-from dataclasses import dataclass 
-from typing import Optional 
 import enum 
+
+from pydantic import BaseModel
+from typing import Optional 
+
+from contracts.router_contracts import RetrievalResult
+
+class GenerationContext(BaseModel):
+    original_query: str
+
+    intent_type: str
+
+    context: str
+
+    citation_lookup :dict[str, RetrievalResult]
 
 
 class GenerationStatus(enum.Enum): 
@@ -19,31 +31,35 @@ class GenerationStatus(enum.Enum):
     EXCEPTION = "exception" 
 
 
-@dataclass 
-class ValidationSignals: 
-    has_evidence: bool 
+class ValidationSignals(BaseModel): 
+    has_citations: bool 
+
+    citation_count: int
 
     answer_length: int 
 
-    cited_evidence: bool 
+    coverage_score: float
 
-    mentioned_entities: int 
-
-    coverage_score: Optional[float] 
+    has_refusal_pattern: bool
 
 
-@dataclass 
-class GenerationResult: 
-    answer: str 
+class GenerationValidationResult(BaseModel):
+    status: GenerationStatus
 
-    model_used: str 
+    score: float
 
-    status: GenerationStatus 
+    signals: ValidationSignals
 
-    score: float 
+    failure_reason: Optional[str] = None
 
-    signals: Optional[ValidationSignals] 
 
-    failure_reason: Optional[str] 
-    
-    failure_details: Optional[str] = None
+class GeneratedCitation(BaseModel):
+    citation_id: str
+
+    asin: str
+
+    review_id: Optional[str]
+
+    evidence_text: str
+
+    retrieval_type: str

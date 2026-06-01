@@ -1,6 +1,6 @@
 from opentelemetry import trace
 
-from contracts.orchestration_contracts import RoutingResult
+from contracts.orchestration_contracts import RouterLayerOutput
 
 from routing_layer.validity import (
     validate_query_structure
@@ -24,8 +24,9 @@ from routing_layer.entity_resolver import (
 )
 
 tracer = trace.get_tracer(__name__)
+resolver = EntityResolver(DBEntityLoader())
 
-def run_router_pipeline(query: str) -> RoutingResult:
+def run_router_pipeline(query: str) -> RouterLayerOutput:
 
     with tracer.start_as_current_span("router_pipeline") as span:
         
@@ -42,10 +43,9 @@ def run_router_pipeline(query: str) -> RoutingResult:
         
         # resolve extracted entities to canonical product identifiers/names
         entities_texts = [e.text for e in router_output.entities]
-        resolver = EntityResolver(DBEntityLoader())
         grounded_entities = resolver.resolve(entities_texts)
         
-        return RoutingResult(
+        return RouterLayerOutput(
             normalized_query=normalized_query,
             validity_result=validity_result,
             router_output=router_output,
