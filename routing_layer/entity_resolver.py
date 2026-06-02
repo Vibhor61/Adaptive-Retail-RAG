@@ -70,7 +70,7 @@ class DBEntityLoader:
 
         except Exception as e:
             logger.error("DBEntityLoader candidte search failed for %r : %s", entity, e)
-            return []
+            raise
 
 class EntityResolver:
 
@@ -134,11 +134,6 @@ class EntityResolver:
 
             except Exception as e:
                 logger.error("EntityResolver.resolve failed for entity=%r: %s", entity, e)
-                results.append(GroundedEntity(
-                    raw_entity=entity,
-                    canonical_entity=None,
-                    match_type=MatchType.NONE,
-                    score=0.0
-                ))
+                raise
 
         return results

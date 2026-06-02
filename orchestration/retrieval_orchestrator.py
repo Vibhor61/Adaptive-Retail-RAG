@@ -1,8 +1,11 @@
+import logging
+
 from opentelemetry import trace
 
 from contracts.orchestration_contracts import (
     RouterLayerOutput,
     RetrievalLayerOutput,
+    ExceptionInfo
 )
 
 from contracts.router_contracts import (
@@ -19,7 +22,7 @@ from retrieval_layer.retrieval_strategies import (
     recommendation_workflow
 )
 
-
+logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 def make_retrieval_plan(input: RouterLayerOutput)->RetrievalPlan:
@@ -32,29 +35,46 @@ def make_retrieval_plan(input: RouterLayerOutput)->RetrievalPlan:
         entity_structure=input.router_output.entity_structure
     )
 
-def retrieve(input: RouterLayerOutput) -> RetrievalLayerOutput:
+def run_retrieval_pipeline(input: RouterLayerOutput) -> RetrievalLayerOutput:
     
     with tracer.start_as_current_span("retrieval_pipeline") as span:
 
-        plan = make_retrieval_plan(input)
-        
-        span.set_attribute("retrieval.query", plan.original_query)
-        
-        if plan.intent_type == Intent.LOOKUP:
-            return lookup_workflow(plan)
-    
-        elif plan.intent_type == Intent.COMPARISON:
-            return comparison_workflow(plan)
-    
-        elif plan.intent_type == Intent.RECOMMENDATION:
-            return recommendation_workflow(plan)
-    
-        elif plan.intent_type == Intent.UNKNOWN:
-            raise NotImplementedError(
-                "intent 'unknown' cannot be routed — adaptive routing required."
-            )
-    
-        raise ValueError(
-            f"Unrecognised intent_type: '{plan.intent_type}' — this should never happen."
-        )
+        span.set_attribute("retrieval.query",input.normalized_query,)
 
+        try:
+
+            plan = make_retrieval_plan(input)
+
+            if plan.intent == Intent.LOOKUP:
+                output = lookup_workflow(plan)
+
+            elif plan.intent == Intent.COMPARISON:
+                output = comparison_workflow(plan)
+
+            elif plan.intent == Intent.RECOMMENDATION:
+                output = recommendation_workflow(plan)
+
+            else:
+                raise NotImplementedError(
+                    f"intent '{plan.intent}' not supported"
+                )
+
+            span.set_attribute("retrieval.status", "success")
+
+            return output
+
+        except Exception as e:
+
+            span.record_exception(e)
+            span.set_attribute("retrieval.status", "error")
+
+            logger.exception("Infrastructure failure in retrieval pipeline")
+
+            return RetrievalLayerOutput(
+                plan=locals().get("plan"),
+                evaluation_bundles=[],
+                system_failure=ExceptionInfo(
+                    exception_type=type(e).__name__,
+                    message=str(e),
+                ),
+            )

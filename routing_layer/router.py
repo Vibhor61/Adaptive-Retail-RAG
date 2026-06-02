@@ -3,10 +3,7 @@ from langchain_ollama import OllamaLLM
 
 from utils import safe_llm_call
 from contracts.router_contracts import (
-    RouterResult,
-    Intent,
-    EntityStructure,
-    EvidenceType
+    RouterResult
 )
 
 
@@ -251,11 +248,4 @@ def analyze_intent(query: str) -> RouterResult:
             span.set_attribute("intent.error", str(e))
             span.set_attribute("router.status", "error")
 
-            return RouterOutput(
-                intent_type=Intent.UNKNOWN,
-                entities=[],
-                entity_structure=EntityStructure.NONE,
-                evidence_type=EvidenceType.MIXED,
-                constraints=None,
-                confidence=0.0
-            )
+            raise

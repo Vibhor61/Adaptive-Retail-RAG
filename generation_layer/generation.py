@@ -1,26 +1,23 @@
+import logging
 import re
 
 from langchain_ollama import OllamaLLM
 from opentelemetry import trace
 
-from ..utils import safe_llm_call
+from utils import safe_llm_call
 
 from contracts.generation_contracts import(
     GenerationContext,
     GeneratedCitation,
 )
 
-from contracts.orchestration_contracts import(
-    GenerationLayerOutput
-)
-
-from prompts import(
+from generation_layer.prompts import(
     build_lookup_prompt,
     build_comparison_prompt,
     build_recommendation_prompt
 )
 
-
+logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 llm = OllamaLLM(model="qwen2.5:7b", temperature=0)
 
@@ -40,10 +37,11 @@ def select_prompt(context: GenerationContext) -> str:
         return build_recommendation_prompt(context.context, context.original_query)
     
     else:
-        raise(f"Will be implemented later in adaptive routing")
+        raise ValueError(f"Unsupported intent type: {intent} — will be implemented later in adaptive routing")
     
 
-def resolve_citations(context: GenerationContext, answer:str):
+
+def resolve_citations(context: GenerationContext, answer: str):
 
     with tracer.start_as_current_span("resolve_citations") as span:
         citations = []
@@ -69,12 +67,12 @@ def resolve_citations(context: GenerationContext, answer:str):
         return citations
 
 
-def generate_answer(context: GenerationContext) -> GenerationLayerOutput:
+def generate_answer(context: GenerationContext) -> str:
 
     with tracer.start_as_current_span("answer_generation") as span:
 
-        span.set_attribute("generation.query",context.original_query)
-        span.set_attribute("generation.context_keys",len(context.citation_lookup))
+        span.set_attribute("generation.query", context.original_query)
+        span.set_attribute("generation.context_keys", len(context.citation_lookup))
 
         prompt = select_prompt(context)
 

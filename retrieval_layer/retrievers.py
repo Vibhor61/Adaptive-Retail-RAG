@@ -94,8 +94,13 @@ def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None,
             )
 
             score_values = [float(row[6]) for row in results]
-            span.set_attribute("retrieval.hit_count", len(retrieval_results))
+            span.set_attribute("retrieval.result_count", len(retrieval_results))
 
+            if retrieval_results:
+                span.set_attribute("retrieval.status", "success")
+            else:
+                span.set_attribute("retrieval.status", "miss")
+            
             return RetrievalBundle(
                 entity=entity,
                 query=query,
@@ -106,18 +111,11 @@ def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None,
             )
 
         except Exception as e:
+            span.set_attribute("retrieval.status", "error")
+            span.set_attribute("retrieval.result_count", 0)
             span.record_exception(e)
-            logger.error("sparse_fact_retrieval failed for identifier=%r: %s", identifier, e)
-            
-            return RetrievalBundle(
-                entity=entity,
-                query=query,
-                retrieval_type="sparse_product",
-                execution_status=RetrievalExecutionStatus.FAILURE,
-                items=[],
-                raw_signals=EMPTY_SIGNALS,
-                failure_reason=str(e),
-            )
+            logger.exception("sparse_fact_retrieval failed")
+            raise
 
 
 def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
@@ -162,7 +160,12 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
                 )
 
             score_values = [float(row[4]) for row in results]
-            span.set_attribute("retrieval.hit_count", len(retrieval_results))
+            span.set_attribute("retrieval.result_count", len(retrieval_results))
+            
+            if retrieval_results:
+                span.set_attribute("retrieval.status", "success")
+            else:
+                span.set_attribute("retrieval.status", "miss")
 
             return RetrievalBundle(
                 query=query,
@@ -173,16 +176,11 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
             )
 
         except Exception as e:
+            span.set_attribute("retrieval.status", "error")
+            span.set_attribute("retrieval.result_count", 0)
             span.record_exception(e)
-            logger.error("review_fts_retrieval failed for query=%r: %s", query, e)
-            return RetrievalBundle(
-                query=query,
-                retrieval_type="review_fts",
-                execution_status=RetrievalExecutionStatus.FAILURE,
-                items=[],
-                raw_signals=EMPTY_SIGNALS,
-                failure_reason=str(e),
-            )
+            logger.exception("review_fts_retrieval failed")
+            raise
 
 
 def dense_review_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
@@ -216,7 +214,12 @@ def dense_review_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
                 ))
 
             score_values = [float(item.score) for item in search_result]
-            span.set_attribute("retrieval.hit_count", len(retrieval_results))
+            span.set_attribute("retrieval.result_count", len(retrieval_results))
+
+            if retrieval_results:
+                span.set_attribute("retrieval.status", "success")
+            else:
+                span.set_attribute("retrieval.status", "miss")
 
             return RetrievalBundle(
                 query=query,
@@ -227,16 +230,11 @@ def dense_review_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
             )
 
         except Exception as e:
+            span.set_attribute("retrieval.status", "error")
+            span.set_attribute("retrieval.result_count", 0)
             span.record_exception(e)
-            logger.error("dense_review_retrieval failed for query=%r: %s", query, e)
-            return RetrievalBundle(
-                query=query,
-                retrieval_type="dense_review",
-                execution_status=RetrievalExecutionStatus.FAILURE,
-                items=[],
-                raw_signals=EMPTY_SIGNALS,
-                failure_reason=str(e),
-            )
+            logger.exception("dense_review_retrieval failed")
+            raise
 
 
 def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> RetrievalBundle:
@@ -282,8 +280,13 @@ def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> Retriev
                 score_values.append(float(score))
                 fused_results.append(base)
 
-            span.set_attribute("fusion.output_count", len(fused_results))
+            span.set_attribute("retrieval.result_count", len(fused_results))
 
+            if fused_results:
+                span.set_attribute("retrieval.status", "success")
+            else:
+                span.set_attribute("retrieval.status", "miss")
+            
             return RetrievalBundle(
                 query=query,
                 retrieval_type="fusion_review",
@@ -293,16 +296,11 @@ def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> Retriev
             )
 
         except Exception as e:
+            span.set_attribute("retrieval.status", "error")
+            span.set_attribute("retrieval.result_count", 0)
             span.record_exception(e)
-            logger.error("fusion_retrieval failed for query=%r: %s", query, e)
-            return RetrievalBundle(
-                query=query,
-                retrieval_type="fusion_review",
-                execution_status=RetrievalExecutionStatus.FAILURE,
-                items=[],
-                raw_signals=EMPTY_SIGNALS,
-                failure_reason=str(e),
-            )
+            logger.exception("fusion_retrieval failed")
+            raise
 
 
 def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
@@ -324,11 +322,16 @@ def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
                     seen.add(item.asin)
                     deduplicated.append(item)
 
-            candidates   = deduplicated[:top_k]
+            candidates = deduplicated[:top_k]
             score_values = [item.score for item in candidates]
 
-            span.set_attribute("retrieval.candidate_count", len(candidates))
+            span.set_attribute("retrieval.result_count", len(candidates))
 
+            if candidates:
+                span.set_attribute("retrieval.status", "success")
+            else:
+                span.set_attribute("retrieval.status", "miss")
+            
             return RetrievalBundle(
                 query=query,
                 retrieval_type="candidate_gen",
@@ -338,13 +341,8 @@ def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
             )
 
         except Exception as e:
+            span.set_attribute("retrieval.status", "error")
+            span.set_attribute("retrieval.result_count", 0)
             span.record_exception(e)
-            logger.error("candidate_gen_retrieval failed for query=%r: %s", query, e)
-            return RetrievalBundle(
-                query=query,
-                retrieval_type="candidate_gen",
-                execution_status=RetrievalExecutionStatus.FAILURE,
-                items=[],
-                raw_signals=EMPTY_SIGNALS,
-                failure_reason=str(e),
-            )
+            logger.exception("candidate_gen_retrieval failed")
+            raise

@@ -89,6 +89,7 @@ def _check_duplicate_entities(output: RouterResult):
     
     return violations
 
+
 def run_structural_guardrails(output: RouterResult) -> StructuralGuardrailResult:
     with tracer.start_as_current_span("structural_guardrails") as span:
         span.set_attribute("router.guardrail", "structural")

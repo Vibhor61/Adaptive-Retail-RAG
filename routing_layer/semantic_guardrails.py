@@ -1,12 +1,13 @@
+import logging
+
 from opentelemetry import trace
 from langchain_ollama import OllamaLLM
 
 from contracts.router_contracts import (
-    RouterResult, SemanticValidationResult, SemanticAnomalyType
+    RouterResult, SemanticValidationResult
 )
 
 from utils import safe_llm_call
-import logging
 
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
@@ -147,13 +148,6 @@ def run_semantic_validation(query: str, router_output: RouterResult) -> Semantic
 
             span.record_exception(e)
             span.set_attribute("semantic.status","error")
+            logger.exception("Semantic validator failed")
 
-            logger.error("Semantic validation error: %s", e)
-            return SemanticValidationResult(
-                semantic_valid=False,
-                semantic_score=0.0,
-                anomaly_signals=[
-                    SemanticAnomalyType.LOW_SEMANTIC_ALIGNMENT
-                ],
-                reasoning_confidence=0.0
-            )
+            raise 

@@ -25,6 +25,10 @@ from contracts.generation_contracts import (
 Data Models for Router Layer Output
 """
 
+class ExceptionInfo(BaseModel):
+    exception_type: str
+    message: str
+
 
 class RouterLayerOutput(BaseModel):
 
@@ -32,14 +36,15 @@ class RouterLayerOutput(BaseModel):
 
     validity_result: ValidationResult
 
-    router_output: RouterResult
+    router_output: RouterResult | None = None
 
-    structural_result: StructuralGuardrailResult
+    structural_result: StructuralGuardrailResult | None = None
 
-    semantic_result: SemanticValidationResult
+    semantic_result: SemanticValidationResult | None = None
 
     grounded_entities: List[GroundedEntity]
 
+    system_failure: ExceptionInfo | None = None
 
 """
 Data Model for Retrieval Layer Output
@@ -50,6 +55,8 @@ class RetrievalLayerOutput(BaseModel):
     plan: RetrievalPlan
 
     evaluation_bundles: list[RetrievalEvaluationBundle]
+
+    system_failure: ExceptionInfo | None = None
 
 
 """
@@ -65,6 +72,4 @@ class GenerationLayerOutput(BaseModel):
 
     validation_result: GenerationValidationResult
 
-    failure_reason: Optional[str] = None
-    
-    failure_details: Optional[str] = None
+    system_failure: ExceptionInfo | None = None
