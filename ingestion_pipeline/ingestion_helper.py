@@ -67,6 +67,30 @@ def norm_price(x) -> Optional[float]:
         return None
 
 
+def normalize_list_field(value) -> list[str]:
+    if value is None:
+        return []
+    
+    if isinstance(value, list):
+        return [norm_text(item) for item in value if norm_text(item)]
+    
+    if isinstance(value, str):
+        cleaned = norm_text(value)
+        return [cleaned] if cleaned else []
+
+    return []
+
+
+def normalize_brand(value) -> str:
+    brand = norm_text(value)
+
+    if brand.lower() in {
+        "", "n/a", "none", "null", "unknown"
+    }:
+        return ""
+
+    return brand
+
 def write_jsonl(path: str, rows) -> None:
     with open(path, "w", encoding="utf-8") as f:
         for r in rows:
@@ -78,15 +102,26 @@ def extract_metadata(obj: dict) -> Optional[Tuple[str, dict]]:
     if not asin:
         return None
     
-    cat = obj.get("category")
-    if cat is None:
-        cat = obj.get("categories") or obj.get("main_cat")
+    category = normalize_list_field(
+        obj.get("category") or obj.get("categories")
+    )
+
+    description = normalize_list_field(
+        obj.get("description")
+    )
+
+    feature = normalize_list_field(
+        obj.get("feature")
+    )
 
     keep = {
         "asin": asin,
         "title": norm_text(obj.get("title")),
-        "brand": norm_text(obj.get("brand")),
-        "category": cat,
+        "brand": normalize_brand(obj.get("brand")),
+        "category": category,
+        "feature": feature,
+        "main_cat": norm_text(obj.get("main_cat")),
+        "description": description,
         "price": norm_price(obj.get("price")),
         "price_raw" : obj.get("price")
     }
@@ -100,9 +135,9 @@ def extract_reviews(obj : dict):
     if not asin:
         return None
 
-    review_text = norm_text(obj.get("reviewText"))
-    summary_text = norm_text(obj.get("summary"))
-    ts = norm_text(obj.get("unixReviewTime"))
+    review_text = norm_text(obj.get("reviewText") or obj.get("review_text"))
+    summary_text = norm_text(obj.get("summary") or obj.get("summary_text"))
+    ts = norm_text(obj.get("unixReviewTime") or obj.get("unix_review_time"))
 
     if not review_text and not summary_text:
         return None

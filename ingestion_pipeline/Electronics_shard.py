@@ -3,8 +3,8 @@ import json
 from ingestion_helper import iter_rows, extract_reviews
 import os
 
-INPUT_FILE = "Data/raw_data/Electronics.json.gz"
-OUTPUT_PREFIX = "Data/shards"
+INPUT_FILE = "../Data/raw_data/Cell_Phones_and_Accessories.json.gz"
+OUTPUT_PREFIX = "../Data/shards"
 SHARD_SIZE = 100000
 
 def shard_reviews():

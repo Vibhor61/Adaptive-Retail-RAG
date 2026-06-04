@@ -9,7 +9,7 @@ from contracts.router_contracts import (
 
 tracer = trace.get_tracer(__name__)
 
-router_llm = OllamaLLM(model="qwen2.5:7b", temperature=0)
+router_llm = OllamaLLM(model="qwen2.5:7b", temperature=0, base_url="http://localhost:5105")
 
 
 def analyze_intent(query: str) -> RouterResult:
@@ -30,8 +30,10 @@ def analyze_intent(query: str) -> RouterResult:
         6. estimate confidence
 
         --------------------------------------------------
-        Intent Types
+        Intent Types (Valid Values)
         --------------------------------------------------
+
+        IMPORTANT: Use EXACTLY one of these values: "lookup", "comparison", "recommendation", "unknown"
 
         lookup
 
@@ -200,6 +202,7 @@ def analyze_intent(query: str) -> RouterResult:
         - extract entities exactly as written
         - confidence must be between 0.0 and 1.0
         - anomaly_signals must be a list of strings
+        - intent_type MUST be one of: "lookup", "comparison", "recommendation", "unknown" (NOT "recommend")
 
         --------------------------------------------------
         Output Schema
@@ -238,7 +241,7 @@ def analyze_intent(query: str) -> RouterResult:
             span.set_attribute("router.intent_type", validated.intent_type.value)
             span.set_attribute("router.query_entities", str(validated.entities))
             span.set_attribute("router.confidence", validated.confidence)
-            span.set_attribute("router.evidence_type", validated.evidence_type)
+            span.set_attribute("router.evidence_type", validated.evidence_type.value)
             span.set_attribute("router.status", "success")
 
             return validated

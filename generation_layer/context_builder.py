@@ -17,34 +17,14 @@ tracer = trace.get_tracer(__name__)
 
 def format_context_chunk(citation_key: str,item: RetrievalResult) -> str:
 
-    if item.source == "sparse_product":
-
-        title = item.metadata.get("title", "")
-        brand = item.metadata.get("brand", "")
-        category = item.metadata.get("category", "")
-        price = item.metadata.get("price", "")
-
-        return f"""
-            [{citation_key}]
-
-            PRODUCT FACT
-
-            ASIN: {item.asin}
-
-            Title: {title}
-            Brand: {brand}
-            Category: {category}
-            Price: {price}
-            """.strip()
+    source = item.source or "unknown"
 
     return f"""
         [{citation_key}]
+        SOURCE: {source.upper()}
+        ASIN: {item.asin or "UNKNOWN"}
 
-        CUSTOMER REVIEW
-
-        ASIN: {item.asin}
-
-        Review:
+        CONTENT:
         {item.text}
         """.strip()
 
@@ -65,7 +45,9 @@ def make_generation_context(retrieval_output: RetrievalLayerOutput) -> Generatio
                 continue
 
             bundle = evaluation_bundle.bundle
-
+            if not bundle or not bundle.items:
+                continue
+            
             context_parts.append( f"\n=== {bundle.retrieval_type.upper()} ===\n")
 
             for item in bundle.items:

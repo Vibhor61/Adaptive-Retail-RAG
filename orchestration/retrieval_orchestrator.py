@@ -45,13 +45,13 @@ def run_retrieval_pipeline(input: RouterLayerOutput) -> RetrievalLayerOutput:
 
             plan = make_retrieval_plan(input)
 
-            if plan.intent == Intent.LOOKUP:
+            if plan.intent_type == Intent.LOOKUP:
                 output = lookup_workflow(plan)
 
-            elif plan.intent == Intent.COMPARISON:
+            elif plan.intent_type == Intent.COMPARISON:
                 output = comparison_workflow(plan)
 
-            elif plan.intent == Intent.RECOMMENDATION:
+            elif plan.intent_type == Intent.RECOMMENDATION:
                 output = recommendation_workflow(plan)
 
             else:

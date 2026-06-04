@@ -19,7 +19,7 @@ from generation_layer.prompts import(
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
-llm = OllamaLLM(model="qwen2.5:7b", temperature=0)
+llm = OllamaLLM(model="qwen2.5:7b", temperature=0, base_url="http://localhost:5105")
 
 CTX_PATTERN = re.compile(f"\[CTX_(\d+)\]")
 

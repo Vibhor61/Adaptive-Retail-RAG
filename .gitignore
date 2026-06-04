@@ -2,6 +2,7 @@ Data/
 .env
 __pycache__/
 *.pyc
+.pytest_cache/
 serving_layer/
 README.md
 answers.md
@@ -10,3 +11,7 @@ ragas/
 future.md
 adaptive_methods/
 evaluation/
+ingestion.log
+embeddings.log
+test_retrieval.py
+test2.py

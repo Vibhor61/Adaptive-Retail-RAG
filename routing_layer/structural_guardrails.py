@@ -107,9 +107,6 @@ def run_structural_guardrails(output: RouterResult) -> StructuralGuardrailResult
         span.set_attribute("router.guardrail.violation_count", len(violations))
 
         if errors:
-            logger.warning(
-                "Structural guardrail violations: %s",
-                [f"{v.field}: {v.reason}" for v in errors],
-            )
+            span.set_attribute("router.guardrails.errors", errors)
 
         return StructuralGuardrailResult(passed=passed, violations=violations)

@@ -3,6 +3,9 @@ from opentelemetry import trace
 from orchestration.router_orchestrator import run_router_pipeline
 from orchestration.retrieval_orchestrator import run_retrieval_pipeline
 from orchestration.generation_orchestrator import run_generation_pipeline
+from config.telemetry import setup_tracing
+
+setup_tracing()
 
 tracer = trace.get_tracer(__name__)
 

@@ -63,7 +63,7 @@ def parse_llm_output(text: str, mode: str = "json") -> Dict[str, Any]:
 
 
 def safe_llm_call(llm, prompt: str, mode: str = "json") -> Dict[str, Any]:
-    raw = llm(prompt)
+    raw = llm.invoke(prompt)
 
     text = raw if isinstance(raw, str) else getattr(raw, "content", str(raw))
 

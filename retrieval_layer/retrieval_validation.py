@@ -55,14 +55,35 @@ def evaluate_retrieval(bundle: RetrievalBundle) -> RetrievalEvaluationBundle:
 
         status = RetrievalQualityStatus.HEALTHY
 
-        if bundle.retrieval_type in ("review_fts", "dense_review", "fusion_review"):
-            if total_items < 3:
+        rtype = bundle.retrieval_type
+
+  
+        if rtype == "sparse_product":
+            if total_items == 1:
+                status = RetrievalQualityStatus.HEALTHY
+            elif total_items < 3:
                 status = RetrievalQualityStatus.WEAK
-                anomaly_flags.append("low_result_count")
-        elif bundle.retrieval_type == "candidate_gen":
+                anomaly_flags.append("low_result_diversity")
+
+        elif rtype in ("review_fts", "dense_review", "fusion_review"):
+            if total_items < 2:
+                status = RetrievalQualityStatus.WEAK
+                anomaly_flags.append("low_review_evidence")
+
+            if unique_asins == 1 and total_items >= 4:
+                anomaly_flags.append("low_diversity_single_asin_bias")
+
+
+        elif rtype == "candidate_gen":
             if unique_asins < 3:
                 status = RetrievalQualityStatus.WEAK
                 anomaly_flags.append("low_asin_diversity")
+
+
+        elif rtype == "fusion_review":
+            if total_items < 2:
+                status = RetrievalQualityStatus.WEAK
+                anomaly_flags.append("weak_fusion_signal")
 
         span.set_attribute("retrieval.type", bundle.retrieval_type)
         span.set_attribute("retrieval.total_items", total_items)

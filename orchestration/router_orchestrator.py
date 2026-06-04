@@ -41,10 +41,10 @@ def run_router_pipeline(query: str) -> RouterLayerOutput:
 
             structural_result = run_structural_guardrails(router_output)
 
-            semantic_result = run_semantic_validation(
-                normalized_query,
-                router_output
-            )
+            # semantic_result = run_semantic_validation(
+            #     normalized_query,
+            #     router_output
+            # )
 
             entities_texts = [e.text for e in router_output.entities]
 
@@ -57,7 +57,7 @@ def run_router_pipeline(query: str) -> RouterLayerOutput:
                 validity_result=validity_result,
                 router_output=router_output,
                 structural_result=structural_result,
-                semantic_result=semantic_result,
+                semantic_result=None,
                 grounded_entities=grounded_entities,
                 system_failure=None
             )
@@ -69,7 +69,7 @@ def run_router_pipeline(query: str) -> RouterLayerOutput:
 
             return RouterLayerOutput(
                 normalized_query=query,
-                validity_result=None,
+                validity_result=validity_result,
                 router_output=None,
                 structural_result=None,
                 semantic_result=None,

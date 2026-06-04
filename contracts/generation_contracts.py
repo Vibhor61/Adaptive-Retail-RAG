@@ -3,7 +3,7 @@ import enum
 from pydantic import BaseModel
 from typing import Optional 
 
-from contracts.router_contracts import RetrievalResult
+from contracts.retrieval_contracts import RetrievalResult
 
 class GenerationContext(BaseModel):
     original_query: str

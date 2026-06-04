@@ -57,7 +57,7 @@ class RetrievalResult(BaseModel):
 
     asin: Optional[str] = None
 
-    review_id: Optional[int] = None
+    review_id: Optional[str] = None
 
     metadata: dict = Field(default_factory=dict)
 

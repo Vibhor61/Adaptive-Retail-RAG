@@ -5,15 +5,27 @@ CREATE TABLE IF NOT EXISTS products_table (
   category          JSONB,
   price             DOUBLE PRECISION,
   price_raw         TEXT,
+  main_cat          TEXT,
+  description       JSONB,
+  feature           JSONB,
   source_run        TEXT,
   updated_at        TIMESTAMPTZ DEFAULT now(),
 
   search_vector tsvector GENERATED ALWAYS AS (
     setweight(to_tsvector('english', coalesce(title,'')), 'A') ||
+
     setweight(to_tsvector('english', coalesce(brand,'')), 'B') ||
+
+    setweight(to_tsvector('english', coalesce(description::text,'')), 'B') ||
+
+    setweight(to_tsvector('english', coalesce(feature::text,'')), 'B') ||
+
     setweight(to_tsvector('english', coalesce(category::text,'')), 'C') ||
+
+    setweight(to_tsvector('english', coalesce(main_cat,'')), 'C') ||
+
     setweight(to_tsvector('english', coalesce(price_raw,'')), 'D')
-  )STORED
+  ) STORED
 );
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;

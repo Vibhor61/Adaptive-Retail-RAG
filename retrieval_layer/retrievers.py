@@ -1,11 +1,13 @@
 import logging
-import os
 import psycopg2
+import json
 
 from typing import Optional
 from qdrant_client import QdrantClient
 from opentelemetry import trace
 from sentence_transformers import SentenceTransformer
+
+from config.settings import settings
 from contracts.retrieval_contracts import (
     RetrievalResult,
     RetrievalBundle,
@@ -16,15 +18,15 @@ from contracts.retrieval_contracts import (
 logger = logging.getLogger(__name__)
 
 DB_CONFIG = {
-    "host": os.getenv("POSTGRES_HOST"),
-    "database": os.getenv("POSTGRES_DB"),
-    "user": os.getenv("POSTGRES_USER"),
-    "password": os.getenv("POSTGRES_PASSWORD"),
-    "port": int(os.getenv("POSTGRES_PORT", 5432))
+    "host": settings.postgres_host,
+    "database": settings.postgres_db,
+    "user": settings.postgres_user,
+    "password": settings.postgres_password,
+    "port": settings.postgres_port
 }
 
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+QDRANT_HOST = settings.qdrant_host
+QDRANT_PORT = settings.qdrant_port
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 
 tracer = trace.get_tracer(__name__)
@@ -37,6 +39,17 @@ EMPTY_SIGNALS = RetrievalRawSignals(top_score=0.0, avg_score=0.0, score_distribu
 def get_connection():
     return psycopg2.connect(**DB_CONFIG)
 
+
+def _safe_json(val):
+    try:
+        if val is None:
+            return ""
+        if isinstance(val, (dict, list)):
+            return json.dumps(val, ensure_ascii=False)
+        return str(val)
+    except Exception:
+        return ""
+    
 
 def compute_signals(score_values: list[float]) -> RetrievalRawSignals:
     if not score_values:
@@ -60,7 +73,7 @@ def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None,
 
         try: 
             sql_query = """
-                SELECT asin, title, brand, category, price, price_raw,
+                SELECT asin, title, brand, category, main_cat, description, feature, price, price_raw,
                     ts_rank_cd(search_vector, websearch_to_tsquery('english', %s)) AS score
                 FROM products_table
                 WHERE search_vector @@ websearch_to_tsquery('english', %s)
@@ -75,32 +88,61 @@ def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None,
 
             retrieval_results = []
             for rank, row in enumerate(results, start=1):
+                asin, title, brand, category, main_cat, description, feature, price, price_raw, score = row
+
+                text = f"""
+                    PRODUCT:
+                    Title: {title}
+                    Brand: {brand}
+                    Category: {main_cat}
+                    Price: {price}
+
+                    Description:
+                    {description}
+                    Features:
+                    {feature}
+                    """.strip()
+
                 retrieval_results.append(
                     RetrievalResult(
                         source="sparse_product",
-                        doc_id=row[0],
-                        asin=row[0],
-                        text=f"{row[1]} {row[2]} {row[3]} {row[4]} {row[5]}",
-                        score=float(row[6]),
+                        doc_id=asin,
+                        asin=asin,
+                        text=text,  
+                        score=float(score),
                         rank=rank,
                         metadata={
-                            "title": row[1], 
-                            "brand": row[2], 
-                            "category": row[3],
-                            "price": row[4], 
-                            "price_raw": row[5]
+                            "title": title,
+                            "brand": brand,
+                            "category": category,
+                            "main_cat": main_cat,
+                            "description": description,
+                            "feature": feature,
+                            "price": price,
+                            "price_raw": price_raw,
                         },
+                    )
                 )
-            )
 
-            score_values = [float(row[6]) for row in results]
+            score_values = [float(row[9]) for row in results] 
             span.set_attribute("retrieval.result_count", len(retrieval_results))
-
+            
             if retrieval_results:
                 span.set_attribute("retrieval.status", "success")
             else:
-                span.set_attribute("retrieval.status", "miss")
-            
+                span.set_attribute("retrieval.status",  "miss")
+
+            top_score = max(score_values) if score_values else 0.0
+
+            span.set_attribute("retrieval.top_score", top_score)
+
+            span.set_attribute(
+                "retrieval.strength",
+                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
+            )
+
+            span.set_attribute("retrieval.signal_density", len(score_values))
+
             return RetrievalBundle(
                 entity=entity,
                 query=query,
@@ -144,7 +186,12 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
             for rank, row in enumerate(results, start=1):
                 summary     = row[2] or ""
                 review_text = row[3] or ""
-                combined    = f"{summary}\n{review_text}".strip()
+                combined    = f"""
+                    REVIEW:
+                    Summary:
+                    {summary}
+                    Text:
+                    {review_text}""".strip()
 
                 retrieval_results.append(
                     RetrievalResult(
@@ -166,6 +213,17 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
                 span.set_attribute("retrieval.status", "success")
             else:
                 span.set_attribute("retrieval.status", "miss")
+
+            top_score = max(score_values) if score_values else 0.0
+
+            span.set_attribute("retrieval.top_score", top_score)
+
+            span.set_attribute(
+                "retrieval.strength",
+                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
+            )
+
+            span.set_attribute("retrieval.signal_density", len(score_values))
 
             return RetrievalBundle(
                 query=query,
@@ -193,16 +251,19 @@ def dense_review_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
         try:
             query_embedding = embedder.encode(query).tolist()
 
-            search_result = qdrant_client.search(
+            search_result = qdrant_client.query_points(
                 collection_name="reviews_embeddings",
-                query_vector=query_embedding,
+                query=query_embedding,
                 limit=top_k,
             )
 
+            points = search_result.points
             retrieval_results = []
-            for rank, item in enumerate(search_result, start=1):
+
+            for rank, item in enumerate(points, start=1):
                 payload = item.payload or {}
-                retrieval_results.append(RetrievalResult(
+                retrieval_results.append(
+                RetrievalResult(
                     source="dense_review",
                     doc_id=str(item.id),
                     review_id=payload.get("review_id"),
@@ -211,15 +272,27 @@ def dense_review_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
                     score=float(item.score),
                     rank=rank,
                     metadata=payload,
-                ))
+                )
+            )
 
-            score_values = [float(item.score) for item in search_result]
+            score_values = [float(item.score) for item in points]
             span.set_attribute("retrieval.result_count", len(retrieval_results))
 
             if retrieval_results:
                 span.set_attribute("retrieval.status", "success")
             else:
                 span.set_attribute("retrieval.status", "miss")
+
+            top_score = max(score_values) if score_values else 0.0
+
+            span.set_attribute("retrieval.top_score", top_score)
+
+            span.set_attribute(
+                "retrieval.strength",
+                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
+            )
+
+            span.set_attribute("retrieval.signal_density", len(score_values))
 
             return RetrievalBundle(
                 query=query,
@@ -287,6 +360,17 @@ def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> Retriev
             else:
                 span.set_attribute("retrieval.status", "miss")
             
+            top_score = max(score_values) if score_values else 0.0
+
+            span.set_attribute("retrieval.top_score", top_score)
+
+            span.set_attribute(
+                "retrieval.strength",
+                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
+            )
+
+            span.set_attribute("retrieval.signal_density", len(score_values))
+
             return RetrievalBundle(
                 query=query,
                 retrieval_type="fusion_review",
@@ -331,6 +415,17 @@ def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
                 span.set_attribute("retrieval.status", "success")
             else:
                 span.set_attribute("retrieval.status", "miss")
+            
+            top_score = max(score_values) if score_values else 0.0
+
+            span.set_attribute("retrieval.top_score", top_score)
+
+            span.set_attribute(
+                "retrieval.strength",
+                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
+            )
+
+            span.set_attribute("retrieval.signal_density", len(score_values))
             
             return RetrievalBundle(
                 query=query,
