@@ -1,9 +1,10 @@
 import logging
 import re
 
-from langchain_ollama import OllamaLLM
+from langchain_groq import ChatGroq
 from opentelemetry import trace
 
+from config.settings import settings
 from utils import safe_llm_call
 
 from contracts.generation_contracts import(
@@ -19,7 +20,12 @@ from generation_layer.prompts import(
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
-llm = OllamaLLM(model="qwen2.5:7b", temperature=0, base_url="http://localhost:5105")
+
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",
+    temperature=0,
+    api_key=settings.groq_api_key,
+)
 
 CTX_PATTERN = re.compile(f"\[CTX_(\d+)\]")
 
@@ -73,7 +79,7 @@ def generate_answer(context: GenerationContext) -> str:
 
         span.set_attribute("generation.query", context.original_query)
         span.set_attribute("generation.context_keys", len(context.citation_lookup))
-
+        span.set_attribute("generation.context_size", len(context.context))
         prompt = select_prompt(context)
 
         result = safe_llm_call(llm, prompt, mode="raw")

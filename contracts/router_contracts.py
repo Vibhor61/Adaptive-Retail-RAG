@@ -1,5 +1,5 @@
 import enum
-from dataclasses import dataclass
+
 from pydantic import BaseModel, Field
 from typing import List, Any, Optional
 
@@ -41,6 +41,39 @@ class ValidationResult(BaseModel):
 
 
 """
+Data Models for Entity Resolution
+"""
+class MatchType(enum.Enum):
+    EXACT = "exact"
+    FUZZY = "fuzzy"
+    FTS_PRODUCT = "fts_product"
+    NONE = "none"
+
+
+class CandidateEntity(BaseModel):
+    asin: Optional[str] = None
+
+    title: Optional[str] = None
+
+    brand: Optional[str] = None
+
+    match_type: MatchType
+
+    retrieval_score: float = 0.0
+
+
+class RankedCandidate(BaseModel):
+    asin: Optional[str]
+
+    title: str
+
+    brand: Optional[str]
+
+    retrieval_score: float
+    
+    reranker_score: float
+
+"""
 Data Models for Router Hypotheses and Decisions
 """
 
@@ -64,14 +97,6 @@ class EvidenceType(enum.Enum):
     MIXED = "mixed"
 
 
-class ExtractedEntity(BaseModel):
-    text: str
-
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0
-    )
-
 class QueryConstraints(BaseModel):
     raw_constraints: dict[str, Any] = Field(default_factory=dict)
 
@@ -80,9 +105,7 @@ class RouterResult(BaseModel):
    
     intent_type: Intent
 
-    entities: List[ExtractedEntity] = Field(
-        default_factory=list
-    )
+    entities: List[RankedCandidate]
 
     entity_structure: EntityStructure
 
@@ -151,19 +174,3 @@ class StructuralViolation(BaseModel):
 class StructuralGuardrailResult(BaseModel):
     passed: bool
     violations: List[StructuralViolation]
-
-"""
-Data Models for Entity Resolution
-"""
-class MatchType(enum.Enum):
-    EXACT = "exact"
-    FUZZY = "fuzzy"
-    FTS_PRODUCT = "fts_product"
-    NONE = "none"
-
-
-class GroundedEntity(BaseModel):
-    match_type: MatchType
-    raw_entity: str
-    canonical_entity: Optional[str]
-    score: float

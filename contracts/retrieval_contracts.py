@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 from contracts.router_contracts import (
     Intent,
     EvidenceType,
-    GroundedEntity,
-    EntityStructure
+    EntityStructure,
+    RankedCandidate
 )
 
 """
@@ -22,7 +22,7 @@ class RetrievalPlan(BaseModel):
 
     entity_structure: EntityStructure
 
-    grounded_entities: list[GroundedEntity]
+    grounded_entities: list[RankedCandidate]
 
     # constraints: QueryConstraints | None
 

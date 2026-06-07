@@ -62,7 +62,7 @@ def make_generation_context(retrieval_output: RetrievalLayerOutput) -> Generatio
 
         return GenerationContext(
             original_query=retrieval_output.plan.original_query,
-            intent_type=retrieval_output.plan.intent_type,
+            intent_type=retrieval_output.plan.intent_type.value,
             context="\n\n".join(context_parts),
             citation_lookup=citation_lookup
         )

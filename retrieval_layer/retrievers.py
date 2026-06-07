@@ -401,12 +401,13 @@ def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
             seen: set[str] = set()
             deduplicated: list[RetrievalResult] = []
 
-            for item in (sparse_bundle.items + fts_bundle.items):
-                if item.asin and item.asin not in seen:
-                    seen.add(item.asin)
-                    deduplicated.append(item)
+            sparse_items = sparse_bundle.items[:top_k]
+            candidate_asins = {item.asin for item in sparse_items if item.asin}
 
-            candidates = deduplicated[:top_k]
+            # filter reviews to only matching ASINs
+            matched_reviews = [item for item in fts_bundle.items if item.asin in candidate_asins]
+
+            candidates = sparse_items + matched_reviews
             score_values = [item.score for item in candidates]
 
             span.set_attribute("retrieval.result_count", len(candidates))

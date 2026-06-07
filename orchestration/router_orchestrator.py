@@ -1,81 +1,142 @@
-from opentelemetry import trace
+import logging
+import sys
+import asyncio
 
-from contracts.orchestration_contracts import RouterLayerOutput, ExceptionInfo
+from pathlib import Path
+from opentelemetry import trace
+from sentence_transformers import CrossEncoder
+
+CURRENT = Path(__file__).resolve().parent
+PROJECT = CURRENT.parent
+
+if str(PROJECT) not in sys.path:
+    sys.path.insert(0, str(PROJECT))
 
 from routing_layer.validity import (
     validate_query_structure
 )
-
-from routing_layer.router import (
-    analyze_intent
+from routing_layer.intent_classification import (
+    IntentClassifier
 )
 
-from routing_layer.structural_guardrails import (
-    run_structural_guardrails
-)
-
-from routing_layer.semantic_guardrails import (
-    run_semantic_validation
+from routing_layer.evidence_type_classification import(
+    EvidenceClassifier
 )
 
 from routing_layer.entity_resolver import (
-    EntityResolver,
     DBEntityLoader
 )
 
+from routing_layer.reranker import (
+    EntityReranker, 
+    EntityResolver
+)
+
+from contracts.router_contracts import (
+    RouterResult,
+    EntityStructure,
+    RankedCandidate,
+    Intent
+)
+
+from contracts.orchestration_contracts import RouterLayerOutput, ExceptionInfo
+
+
 tracer = trace.get_tracer(__name__)
-resolver = EntityResolver(DBEntityLoader())
+logger = logging.getLogger(__name__)
 
-def run_router_pipeline(query: str) -> RouterLayerOutput:
 
-    with tracer.start_as_current_span("router_pipeline") as span:
+class RouterOrchestrator:
 
-        span.set_attribute("router.query", query)
+    def __init__(self, llm):
+        self.intent_classifier = IntentClassifier(llm=llm)
 
-        try:
+        self.evidence_classifier = EvidenceClassifier(llm=llm)
 
-            validity_result = validate_query_structure(query)
-            normalized_query = validity_result.normalized_query
+        self.resolver = EntityResolver(
+            loader=DBEntityLoader(),
+            reranker=EntityReranker(
+                model=CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2",max_length=512),
+            ),
+        )
 
-            router_output = analyze_intent(normalized_query)
 
-            structural_result = run_structural_guardrails(router_output)
+    def run(self, query: str) -> RouterLayerOutput:
 
-            # semantic_result = run_semantic_validation(
-            #     normalized_query,
-            #     router_output
-            # )
+        validity_result = None 
+        with tracer.start_as_current_span("router_pipeline") as span:
+            span.set_attribute("router.query", query)
 
-            entities_texts = [e.text for e in router_output.entities]
+            try:
+                validity_result = validate_query_structure(query)
+                normalized_query = validity_result.normalized_query
 
-            grounded_entities = resolver.resolve(
-                entities_texts
-            )
+                span.set_attribute("router.validity_status", validity_result.status.value)
+                span.set_attribute("router.normalized_query", normalized_query)
 
-            return RouterLayerOutput(
-                normalized_query=normalized_query,
-                validity_result=validity_result,
-                router_output=router_output,
-                structural_result=structural_result,
-                semantic_result=None,
-                grounded_entities=grounded_entities,
-                system_failure=None
-            )
+                intent, entities, entity_struct = self.intent_classifier.classify_intent(normalized_query)
 
-        except Exception as e:
+                span.set_attribute("router.intent", intent.value)
+                span.set_attribute("router.entities", entities)
+                span.set_attribute("router.entity_structure", entity_struct.value)
 
-            span.record_exception(e)
-            span.set_attribute("router.status", "error")
+                if intent == Intent.UNKNOWN:
+                    # clarification node
+                    pass
 
-            return RouterLayerOutput(
-                normalized_query=query,
-                validity_result=validity_result,
-                router_output=None,
-                structural_result=None,
-                semantic_result=None,
-                grounded_entities=[],
-                system_failure=ExceptionInfo(
-                    exception_type=type(e).__name__,
-                    message=str(e)
+                evidence_type = self.evidence_classifier.derive_evidence_type(
+                    intent=intent,
+                    query=normalized_query,
                 )
-            )
+
+                span.set_attribute("router.evidence_type", evidence_type.value)
+
+                resolved = self.resolver.resolve(
+                    query=normalized_query,
+                    intent=intent,
+                    entities=entities,
+                    entity_structure=entity_struct,
+                )
+
+                # intent classifier found no entities, but resolver recovered something via full query upgrade the structure.
+                if not entities and resolved:
+                    entity_struct = EntityStructure.MULTI_IMPLICIT
+                
+                span.set_attribute("router.num_resolved", len(resolved))
+                
+                router_result = RouterResult(
+                    intent_type=intent,
+                    entities=resolved,
+                    entity_structure=entity_struct,
+                    evidence_type=evidence_type,
+                    confidence=1.0,
+                )
+                span.set_attribute("router.status", "ok")
+
+                return RouterLayerOutput(
+                    normalized_query=normalized_query,
+                    validity_result=validity_result,
+                    router_output=router_result,
+                    grounded_entities=resolved,
+                    system_failure=None,
+                )
+
+            except Exception as e:
+                span.record_exception(e)
+                span.set_attribute("router.status", "error")
+                span.set_attribute("router.error_type", type(e).__name__)
+
+                logger.error(
+                    "RouterOrchestrator.run failed for query=%r: %s", query, e
+                )
+
+                return RouterLayerOutput(
+                    normalized_query=query,
+                    validity_result=validity_result,
+                    router_output=None,
+                    grounded_entities=[],
+                    system_failure=ExceptionInfo(
+                        exception_type=type(e).__name__,
+                        message=str(e),
+                    ),
+                )

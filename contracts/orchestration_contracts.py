@@ -1,12 +1,10 @@
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel
 
 from contracts.router_contracts import (
     RouterResult,
-    SemanticValidationResult,
-    StructuralGuardrailResult,
     ValidationResult,
-    GroundedEntity,
+    RankedCandidate
 )
 
 from contracts.retrieval_contracts import (
@@ -15,8 +13,6 @@ from contracts.retrieval_contracts import (
 )
 
 from contracts.generation_contracts import (
-    ValidationSignals,
-    GenerationStatus,
     GeneratedCitation,
     GenerationValidationResult
 )
@@ -38,11 +34,7 @@ class RouterLayerOutput(BaseModel):
 
     router_output: RouterResult | None = None
 
-    structural_result: StructuralGuardrailResult | None = None
-
-    semantic_result: SemanticValidationResult | None = None
-
-    grounded_entities: List[GroundedEntity]
+    grounded_entities: List[RankedCandidate]
 
     system_failure: ExceptionInfo | None = None
 

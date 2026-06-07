@@ -1,13 +1,10 @@
 import logging
-import psycopg2
 
-from typing import List
+from psycopg2 import pool
 from opentelemetry import trace
+
+from contracts.router_contracts import MatchType, CandidateEntity
 from config.settings import settings
-from contracts.router_contracts import (
-    MatchType,
-    GroundedEntity
-)
 
 DB_CONFIG = {
     "host": settings.postgres_host,
@@ -20,129 +17,82 @@ DB_CONFIG = {
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-MIN_FUZZY_SCORE = 0.40
-
 
 class DBEntityLoader:
-    def connect(self):
-        return psycopg2.connect(**DB_CONFIG)
+    def __init__(self):
+        self._pool = pool.SimpleConnectionPool(
+            minconn=1, maxconn=10, **DB_CONFIG
+        )
 
-    def candidate_search(self, entity: str):
-        query = """
-            SELECT asin, title, brand,             
+    def candidate_search(self, entity: str) -> list[CandidateEntity]:
 
-            CASE 
-                WHEN LOWER(title) = LOWER(%s) THEN 'exact'
-                WHEN LOWER(brand) = LOWER(%s) THEN 'exact'
-                WHEN title %% %s AND similarity(title,%s) > 0.40 THEN 'fuzzy'
-                WHEN search_vector @@ websearch_to_tsquery(%s) THEN 'fts_product'
-                ELSE 'none'
-            END AS match_type,
+        word_count = len(entity.split())
 
-            CASE 
-                WHEN LOWER(title) = LOWER(%s) THEN 1.0
-                WHEN LOWER(brand) = LOWER(%s) THEN 1.0
-                WHEN title %% %s AND similarity(title, %s) > 0.40 THEN similarity(%s, title)
-                ELSE ts_rank_cd(search_vector, websearch_to_tsquery(%s))
-            END AS score
-
-            FROM products_table
-            WHERE 
-                LOWER(title) = LOWER(%s)
-            OR LOWER(brand) = LOWER(%s)
-            OR title %% %s
-            OR search_vector @@ websearch_to_tsquery(%s)
-
-        LIMIT 20;
+        if word_count>3:
+            fuzzy_arm = ""
+        else:
+            fuzzy_arm = "UNION ALL SELECT asin, 'fuzzy' AS match_type FROM products_table WHERE title %% %(ent)s"
+        
+        query = f"""
+            WITH query_parsed AS (
+                SELECT websearch_to_tsquery(%(ent)s) AS tsq
+            ),
+            raw_candidate_ids AS (
+                SELECT asin, 'exact' AS match_type FROM products_table WHERE LOWER(title) = LOWER(%(ent)s)
+                UNION ALL
+                SELECT asin, 'exact' AS match_type FROM products_table WHERE LOWER(brand) = LOWER(%(ent)s)
+                UNION ALL
+                SELECT asin, 'fts_product' AS match_type FROM products_table, query_parsed WHERE search_vector @@ tsq
+                {fuzzy_arm}
+            ),
+            distinct_pool AS (
+                SELECT DISTINCT ON (asin) asin, match_type FROM raw_candidate_ids LIMIT 50
+            )
+            SELECT
+                p.asin,
+                p.title,
+                p.brand,
+                dp.match_type,
+                CASE
+                    WHEN dp.match_type = 'exact' THEN 1.0
+                    WHEN dp.match_type = 'fuzzy' THEN similarity(p.title, %(ent)s)
+                    ELSE LEAST(1.0, ts_rank_cd(p.search_vector, (SELECT tsq FROM query_parsed)))
+                END AS score
+            FROM distinct_pool dp
+            JOIN products_table p ON dp.asin = p.asin
+            ORDER BY score DESC
+            LIMIT 20;
         """
 
-        with tracer.start_as_current_span("router.db.candidate_search") as span:
-            span.set_attribute("entity", entity)
+        candidates: list[CandidateEntity] = []
+
+        with tracer.start_as_current_span("router.db_candidate_search") as span:
+            span.set_attribute("entity_or_query", entity)
+            
             try:
-                with self.connect() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        query,
-                        (entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity, entity)
-                    )
+                conn = self._pool.getconn()
+                with conn.cursor() as cur:
+                    # If autocommit=True threshold will not apply 
+                    cur.execute("SET LOCAL pg_trgm.similarity_threshold = 0.40")
+                    cur.execute(query, {"ent": entity})
                     rows = cur.fetchall()
-                    span.set_attribute("row_count", len(rows))
-                    return rows
+
+                span.set_attribute("row_count", len(rows))
+
+                for row in rows:
+                    candidates.append(CandidateEntity(
+                        asin=row[0] or None,
+                        title=row[1] or "unknown",
+                        brand=row[2] or None,
+                        match_type=MatchType(row[3] or "none"),
+                        retrieval_score=float(row[4] or 0.0),
+                    ))
+
+                return candidates
+
             except Exception as e:
                 logger.error("DBEntityLoader candidate search failed for %r : %s", entity, e)
                 span.record_exception(e)
                 raise
-
-
-class EntityResolver:
-
-    def __init__(self, loader: DBEntityLoader):
-        self.loader = loader
-
-    def _rank(self, entity: str, rows) -> GroundedEntity:
-
-        with tracer.start_as_current_span("router.entity.rank") as span:
-
-            if not rows:
-                span.set_attribute("result", "no_candidates")
-                return GroundedEntity(
-                    raw_entity=entity,
-                    canonical_entity=None,
-                    match_type=MatchType.NONE,
-                    score=0.0
-                )
-
-            best_score = -1.0
-            second_best = -1.0
-            best = None
-
-            type_weight = {
-                MatchType.EXACT: 1.0,
-                MatchType.FUZZY: 0.7,
-                MatchType.FTS_PRODUCT: 0.5,
-                MatchType.NONE: 0.0
-            }
-
-            for r in rows:
-                asin, title, brand, match_type, score = r
-                mt = MatchType(match_type)
-
-                final_score = (
-                    0.75 * float(score or 0.0)
-                    + 0.25 * type_weight[mt]
-                )
-
-                if final_score > best_score:
-                    second_best = best_score
-                    best_score = final_score
-                    best = (asin, title, brand, mt, final_score)
-
-            asin, title, brand, mt, final_score = best
-
-            span.set_attribute("winner.asin", asin)
-            span.set_attribute("winner.match_type", mt.value)
-            span.set_attribute("winner.score", final_score)
-            span.set_attribute("decision.margin", best_score - second_best)
-            
-            return GroundedEntity(
-                raw_entity=entity,
-                canonical_entity=title,
-                match_type=mt,
-                score=final_score
-            )
-
-    def resolve(self, entities: List[str]) -> list[GroundedEntity]:
-        results = []
-
-        with tracer.start_as_current_span("router.db") as span:
-            for entity in entities:
-                try:
-                    rows = self.loader.candidate_search(entity)
-                    grounded = self._rank(entity, rows)
-                    results.append(grounded)
-                except Exception as e:
-                    span.record_exception(e)
-                    logger.error("EntityResolver.resolve failed for entity=%r: %s", entity, e)
-                    raise
-
-        return results
+            finally:
+                self._pool.putconn(conn)

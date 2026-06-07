@@ -13,5 +13,4 @@ adaptive_methods/
 evaluation/
 ingestion.log
 embeddings.log
-test_retrieval.py
-test2.py
+eval/

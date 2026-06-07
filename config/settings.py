@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     phoenix_host: str
     phoenix_port: int
+
+    groq_api_key: str
     
     class Config:
         env_file = ".env"

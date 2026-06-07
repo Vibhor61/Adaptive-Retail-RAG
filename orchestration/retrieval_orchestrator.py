@@ -28,7 +28,7 @@ tracer = trace.get_tracer(__name__)
 def make_retrieval_plan(input: RouterLayerOutput)->RetrievalPlan:
 
     return RetrievalPlan(
-        original_query =input.normalized_query,
+        original_query=input.normalized_query,
         intent_type=input.router_output.intent_type,
         evidence_type=input.router_output.evidence_type,
         grounded_entities=input.grounded_entities,
@@ -56,7 +56,7 @@ def run_retrieval_pipeline(input: RouterLayerOutput) -> RetrievalLayerOutput:
 
             else:
                 raise NotImplementedError(
-                    f"intent '{plan.intent}' not supported"
+                    f"intent '{plan.intent_type}' not supported"
                 )
 
             span.set_attribute("retrieval.status", "success")

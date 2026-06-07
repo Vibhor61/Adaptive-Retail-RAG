@@ -4,7 +4,7 @@ from opentelemetry import trace
 from contracts.router_contracts import (
     EvidenceType,
     EntityStructure,
-    GroundedEntity
+    RankedCandidate
 )
 
 from contracts.retrieval_contracts import (
@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def sparse(entity: GroundedEntity|None, query: str, top_k: int) -> RetrievalEvaluationBundle:
+def sparse(entity: RankedCandidate|None, query: str, top_k: int) -> RetrievalEvaluationBundle:
     bundle = sparse_fact_retrieval(
-        entity=entity.canonical_entity if entity else None,
+        entity=entity.title if entity else None,
         query=query,
         top_k=top_k,
     )
@@ -53,7 +53,7 @@ def recommendation_candidate_gen(query: str, top_k: int) -> RetrievalEvaluationB
     return evaluate_retrieval(bundle)
 
 
-def by_evidence_single(entity: GroundedEntity|None, query: str, evidence_type: EvidenceType, top_k: int) -> list[RetrievalEvaluationBundle]:
+def by_evidence_single(entity: RankedCandidate|None, query: str, evidence_type: EvidenceType, top_k: int) -> list[RetrievalEvaluationBundle]:
 
     if evidence_type == EvidenceType.FACTUAL:
         return[sparse(entity, query, top_k)]
@@ -69,7 +69,7 @@ def by_evidence_single(entity: GroundedEntity|None, query: str, evidence_type: E
     )
 
 
-def by_evidence_multi(entities: list[GroundedEntity], query: str, evidence_type: EvidenceType, top_k: int) -> list[RetrievalEvaluationBundle]:
+def by_evidence_multi(entities: list[RankedCandidate], query: str, evidence_type: EvidenceType, top_k: int) -> list[RetrievalEvaluationBundle]:
  
     bundles: list[RetrievalEvaluationBundle] = []
  
