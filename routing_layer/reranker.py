@@ -53,10 +53,15 @@ class EntityReranker:
             if ranked:
                 span.set_attribute("top.title", ranked[0].title or "none")
                 span.set_attribute("top.asin", ranked[0].asin or "none")
+                span.set_attribute("top.retrieval_score", round(ranked[0].retrieval_score, 4))
                 span.set_attribute("top.reranker_score", round(ranked[0].reranker_score, 4))
 
             if len(ranked) > 1:
                 span.set_attribute("margin", round(ranked[0].reranker_score - ranked[1].reranker_score, 4))
+
+            span.set_attribute(
+                "candidate_titles", str([c.title for c in candidates[:5]])
+            )
 
             return ranked
 
@@ -75,13 +80,16 @@ class EntityResolver:
             span.set_attribute("intent", intent.value)
             span.set_attribute("entity_structure", entity_structure.value)
             span.set_attribute("entities", str(entities))
+            span.set_attribute("num_entities", len(entities))
 
             if intent in (Intent.RECOMMENDATION, Intent.UNKNOWN):
                 span.set_attribute("skipped", True)
+                span.set_attribute("skip_reason", intent.value)
                 return []
 
             try:
                 if not entities:
+                    span.set_attribute("fallback_used", True)
                     # no entities from LLM — run full query as fallback
                     candidates = self.loader.candidate_search(query)
                     if not candidates:
@@ -89,8 +97,14 @@ class EntityResolver:
                     ranked = self.reranker.rerank(query=query, candidates=candidates)
                     if not ranked:
                         return []
-                    return [ranked[0]]
+                    
+                    span.set_attribute("fallback_top_title",ranked[0].title or "none")
+                    span.set_attribute("fallback_top_score", ranked[0].reranker_score)
 
+                    return [ranked[0]]
+        
+                else:
+                    span.set_attribute("fallback_used", False)
 
                 grounded: list[RankedCandidate] = []
 
@@ -114,10 +128,13 @@ class EntityResolver:
                         entity_span.set_attribute("found", True)
                         entity_span.set_attribute("top.title", ranked[0].title or "none")
                         entity_span.set_attribute("top.reranker_score", round(ranked[0].reranker_score, 4))
-
+                        entity_span.set_attribute("top.asin", ranked[0].asin or "none")
+                        entity_span.set_attribute("top.retrieval_score", round(ranked[0].retrieval_score, 4))   
+                        
                         grounded.append((ranked[0]))
 
                 span.set_attribute("num_grounded", len(grounded))
+                span.set_attribute("grounded_asins", str([c.asin for c in grounded]))
                 return grounded
 
             except Exception as e:

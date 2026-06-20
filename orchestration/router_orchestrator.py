@@ -1,6 +1,7 @@
 import logging
 import sys
-import asyncio
+
+from config.settings import settings
 
 from pathlib import Path
 from opentelemetry import trace
@@ -35,8 +36,6 @@ from routing_layer.reranker import (
 from contracts.router_contracts import (
     RouterResult,
     EntityStructure,
-    RankedCandidate,
-    Intent
 )
 
 from contracts.orchestration_contracts import RouterLayerOutput, ExceptionInfo
@@ -56,7 +55,7 @@ class RouterOrchestrator:
         self.resolver = EntityResolver(
             loader=DBEntityLoader(),
             reranker=EntityReranker(
-                model=CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2",max_length=512),
+                model=CrossEncoder(settings.reranker_model,max_length=512),
             ),
         )
 
@@ -79,10 +78,6 @@ class RouterOrchestrator:
                 span.set_attribute("router.intent", intent.value)
                 span.set_attribute("router.entities", entities)
                 span.set_attribute("router.entity_structure", entity_struct.value)
-
-                if intent == Intent.UNKNOWN:
-                    # clarification node
-                    pass
 
                 evidence_type = self.evidence_classifier.derive_evidence_type(
                     intent=intent,

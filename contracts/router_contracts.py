@@ -1,7 +1,7 @@
 import enum
 
 from pydantic import BaseModel, Field
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Literal
 
 """
 Data Models for Router Pre-Validation
@@ -84,6 +84,11 @@ class Intent(enum.Enum):
     UNKNOWN = "unknown"
 
 
+class IntentResponse(BaseModel):
+    intent: Intent
+    entities: list[str]
+
+
 class EntityStructure(enum.Enum):
     NONE = "none"
     SINGLE = "single"
@@ -154,23 +159,3 @@ class SemanticValidationResult(BaseModel):
         ge=0.0,
         le=1.0
     )
-
-
-"""
-Data Models for Structured Guardrail Outputs
-"""
-
-class ViolationSeverity(enum.Enum):
-    WARNING = "warning"
-    ERROR = "error"
-
-
-class StructuralViolation(BaseModel):
-    field: str
-    reason: str
-    severity: ViolationSeverity
-
-
-class StructuralGuardrailResult(BaseModel):
-    passed: bool
-    violations: List[StructuralViolation]

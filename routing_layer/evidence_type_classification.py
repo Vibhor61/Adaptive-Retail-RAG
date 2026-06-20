@@ -1,4 +1,5 @@
 import logging
+import re
 
 from opentelemetry import trace
 
@@ -83,7 +84,16 @@ class EvidenceClassifier:
                 span.set_attribute("llm.raw_output", raw)
                 span.set_attribute("llm.recognized", raw in EVIDENCE_TOKEN_MAP)
 
-                evidence = EVIDENCE_TOKEN_MAP.get(raw, EvidenceType.MIXED)
+                match = re.search(
+                    r"\b(factual|experiential|mixed)\b",
+                    raw
+                )
+
+                if match:
+                    token = match.group(1)
+                    evidence = EVIDENCE_TOKEN_MAP[token]
+                else:
+                    evidence = EvidenceType.MIXED
                 span.set_attribute("evidence_type", evidence.value)
                 return evidence
 

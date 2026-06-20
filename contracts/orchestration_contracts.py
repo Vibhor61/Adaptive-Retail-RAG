@@ -1,10 +1,11 @@
+from enum import Enum
 from typing import List
 from pydantic import BaseModel
 
 from contracts.router_contracts import (
     RouterResult,
     ValidationResult,
-    RankedCandidate
+    RankedCandidate,
 )
 
 from contracts.retrieval_contracts import (
@@ -65,3 +66,23 @@ class GenerationLayerOutput(BaseModel):
     validation_result: GenerationValidationResult
 
     system_failure: ExceptionInfo | None = None
+
+
+"""
+Data Models for Structured Guardrail Outputs
+"""
+
+class ViolationSeverity(Enum):
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class StructuralViolation(BaseModel):
+    field: str
+    reason: str
+    severity: ViolationSeverity
+
+
+class StructuralGuardrailResult(BaseModel):
+    passed: bool
+    violations: List[StructuralViolation]

@@ -21,18 +21,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-DB_CONFIG = {
-    "host": settings.postgres_host,
-    "database": settings.postgres_db,
-    "user": settings.postgres_user,
-    "password": settings.postgres_password,
-    "port": settings.postgres_port
-}
-
-QDRANT_HOST = settings.qdrant_host
-QDRANT_PORT = settings.qdrant_port
-
-EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+EMBEDDING_MODEL_NAME = settings.embedding_model
 COLLECTION_NAME = "reviews_embeddings"
 
 BATCH_SIZE = 10000
@@ -41,7 +30,7 @@ model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 def get_connection():
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(settings.postgres_url)
         logger.info(f"Successfully connected to PostgreSQL database: {DB_CONFIG['database']}")
         return conn
     except Exception as e:
@@ -91,8 +80,8 @@ def mark_embeddings_complete(conn, model: str, review_ids: list[str]):
 def create_embeddings(conn, df, qdrant_batch_size:int = 256):
     try:
         logger.info(f"Starting embedding creation for {len(df)} reviews")
-        client = QdrantClient(host=QDRANT_HOST,port=QDRANT_PORT)
-        logger.info(f"Connected to Qdrant at {QDRANT_HOST}:{QDRANT_PORT}")
+        client = QdrantClient(url=settings.qdrant_url)
+        logger.info(f"Connected to Qdrant at {settings.qdrant_host}:{settings.qdrant_port}")
         
         existing_names = [c.name for c in client.get_collections().collections]
         if COLLECTION_NAME not in existing_names:

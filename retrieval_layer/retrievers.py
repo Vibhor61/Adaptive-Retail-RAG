@@ -1,6 +1,5 @@
 import logging
 import psycopg2
-import json
 
 from typing import Optional
 from qdrant_client import QdrantClient
@@ -17,39 +16,17 @@ from contracts.retrieval_contracts import (
 
 logger = logging.getLogger(__name__)
 
-DB_CONFIG = {
-    "host": settings.postgres_host,
-    "database": settings.postgres_db,
-    "user": settings.postgres_user,
-    "password": settings.postgres_password,
-    "port": settings.postgres_port
-}
-
-QDRANT_HOST = settings.qdrant_host
-QDRANT_PORT = settings.qdrant_port
-EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+EMBEDDING_MODEL = settings.embedding_model
 
 tracer = trace.get_tracer(__name__)
-qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+qdrant_client = QdrantClient(url=settings.qdrant_url)
 embedder = SentenceTransformer(EMBEDDING_MODEL)
 
 EMPTY_SIGNALS = RetrievalRawSignals(top_score=0.0, avg_score=0.0, score_distribution=[])
 
-
 def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(settings.postgres_url)
 
-
-def _safe_json(val):
-    try:
-        if val is None:
-            return ""
-        if isinstance(val, (dict, list)):
-            return json.dumps(val, ensure_ascii=False)
-        return str(val)
-    except Exception:
-        return ""
-    
 
 def compute_signals(score_values: list[float]) -> RetrievalRawSignals:
     if not score_values:
@@ -169,10 +146,12 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
 
         try:
             sql_query = """
-                SELECT asin, review_id, summary_text, review_text,
-                    ts_rank_cd(search_vector, websearch_to_tsquery('english', %s)) AS score
-                FROM reviews_table
-                WHERE search_vector @@ websearch_to_tsquery('english', %s)
+                SELECT r.asin, r.review_id, r.summary_text, r.review_text,
+                    p.title, p.brand, p.price,
+                    ts_rank_cd(r.search_vector, websearch_to_tsquery('english', %s)) AS score
+                FROM reviews_table r
+                LEFT JOIN products_table p ON r.asin = p.asin
+                WHERE r.search_vector @@ websearch_to_tsquery('english', %s)
                 ORDER BY score DESC
                 LIMIT %s;
             """
@@ -184,14 +163,20 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
 
             retrieval_results = []
             for rank, row in enumerate(results, start=1):
-                summary     = row[2] or ""
+                asin = row[0]
+                review_id = row[1]
+                summary = row[2] or ""
                 review_text = row[3] or ""
-                combined    = f"""
+                title = row[4] or "Unknown Product"
+                brand = row[5] or ""
+                price = row[6] or ""
+
+                combined = f"""
+                    PRODUCT: {title} | Brand: {brand} | Price: {price}
                     REVIEW:
-                    Summary:
-                    {summary}
-                    Text:
-                    {review_text}""".strip()
+                    Summary: {summary}
+                    Text: {review_text}
+                """.strip()
 
                 retrieval_results.append(
                     RetrievalResult(
@@ -199,14 +184,14 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
                         doc_id=row[0],
                         review_id=row[1],
                         asin=row[0],
-                        score=float(row[4]),
+                        score=float(row[7]),
                         rank=rank,
                         text=combined,
-                        metadata={},
+                        metadata={"title": title, "brand": brand},
                     )
                 )
 
-            score_values = [float(row[4]) for row in results]
+            score_values = [float(row[7]) for row in results]
             span.set_attribute("retrieval.result_count", len(retrieval_results))
             
             if retrieval_results:
@@ -258,17 +243,38 @@ def dense_review_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
             )
 
             points = search_result.points
+
+            asins = [p.payload.get("asin") for p in points if p.payload and p.payload.get("asin")]
+
+            title_map = {}
+            if asins:
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT asin, title, brand, price FROM products_table WHERE asin = ANY(%s)",
+                            (asins,)
+                        )
+                        title_map = {row[0]: (row[1], row[2], row[3]) for row in cur.fetchall()}
+
             retrieval_results = []
 
             for rank, item in enumerate(points, start=1):
                 payload = item.payload or {}
+                asin = payload.get("asin")
+                title, brand, price = title_map.get(asin, ("Unknown Product", "", ""))
+
+                combined = f"""
+                    PRODUCT: {title} | Brand: {brand} | Price: {price}
+                    REVIEW:
+                    Text: {payload.get('text', '')}
+                """.strip()
                 retrieval_results.append(
                 RetrievalResult(
                     source="dense_review",
                     doc_id=str(item.id),
                     review_id=payload.get("review_id"),
-                    asin=payload.get("asin"),
-                    text=payload.get("text", ""),
+                    asin=asin,
+                    text=combined,
                     score=float(item.score),
                     rank=rank,
                     metadata=payload,
@@ -319,12 +325,19 @@ def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> Retriev
         span.set_attribute("fusion.k", fusion_k)
 
         try:
-            fts_bundle   = review_fts_retrieval(query=query, top_k=top_k)
+            fts_bundle = review_fts_retrieval(query=query, top_k=top_k)
             dense_bundle = dense_review_retrieval(query=query, top_k=top_k)
 
-            scores    = {}
+            scores = {}
             best_item = {}
 
+            span.set_attribute(
+                "fusion.fts_count", len(fts_bundle.items)
+            )
+
+            span.set_attribute(
+                "fusion.dense_count", len(dense_bundle.items)
+            )
             for item in (fts_bundle.items + dense_bundle.items):
                 if item.rank is None:
                     continue
@@ -337,7 +350,7 @@ def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> Retriev
             ordered = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
 
             fused_results = []
-            score_values  = []
+            score_values = []
 
             for final_rank, (key, score) in enumerate(ordered, start=1):
                 base = best_item[key].model_copy(update={
@@ -397,9 +410,6 @@ def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
         try:
             sparse_bundle = sparse_fact_retrieval(query=query, top_k=20)
             fts_bundle = review_fts_retrieval(query=query, top_k=20)
-
-            seen: set[str] = set()
-            deduplicated: list[RetrievalResult] = []
 
             sparse_items = sparse_bundle.items[:top_k]
             candidate_asins = {item.asin for item in sparse_items if item.asin}

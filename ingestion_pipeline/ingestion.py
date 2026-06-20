@@ -2,6 +2,7 @@ import json
 import psycopg2
 import argparse
 import logging
+import os 
 
 from psycopg2.extras import execute_values
 from pathlib import Path
@@ -24,15 +25,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_PRODUCTS = PROJECT_ROOT / "Data" / "raw_data" / "meta_Cell_Phones_and_Accessories.json.gz"
 DEFAULT_REVIEWS = PROJECT_ROOT / "Data" / "shards"
-
-
-DB_CONFIG = {
-    "host": settings.postgres_host,
-    "database": settings.postgres_db,
-    "user": settings.postgres_user,
-    "password": settings.postgres_password,
-    "port": settings.postgres_port
-}
 
 # Products Metadata can change with time we need latest data per ASIN so doing upsert 
 # Delete and insert is load heavy
@@ -172,9 +164,9 @@ def update_rag_ingest_state(cur, shard_idx: int):
 
 def run_loader(product_file_path:str, review_file_path:str, run_date:str, start_shard:int, end_shard:int, overwrite_partition:bool = False, metadata:bool=False):
     logger.info(f"Starting data loader - Run date: {run_date}, Shards: {start_shard}-{end_shard}")
-    logger.debug(f"Database config: {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
+    logger.debug(f"Database config: {settings.postgres_url}")
     
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(settings.postgres_url)
     try:
         with conn.cursor() as cur:
             if overwrite_partition:

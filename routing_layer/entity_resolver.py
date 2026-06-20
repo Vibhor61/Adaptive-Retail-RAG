@@ -6,13 +6,6 @@ from opentelemetry import trace
 from contracts.router_contracts import MatchType, CandidateEntity
 from config.settings import settings
 
-DB_CONFIG = {
-    "host": settings.postgres_host,
-    "database": settings.postgres_db,
-    "user": settings.postgres_user,
-    "password": settings.postgres_password,
-    "port": settings.postgres_port
-}
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -21,7 +14,7 @@ tracer = trace.get_tracer(__name__)
 class DBEntityLoader:
     def __init__(self):
         self._pool = pool.SimpleConnectionPool(
-            minconn=1, maxconn=10, **DB_CONFIG
+            minconn=1, maxconn=10, dsn=settings.postgres_url
         )
 
     def candidate_search(self, entity: str) -> list[CandidateEntity]:
@@ -68,6 +61,10 @@ class DBEntityLoader:
 
         with tracer.start_as_current_span("router.db_candidate_search") as span:
             span.set_attribute("entity_or_query", entity)
+            span.set_attribute("entity_word_count", word_count)
+            span.set_attribute("fuzzy_enabled", word_count <= 3)
+            
+            conn = None
             
             try:
                 conn = self._pool.getconn()
@@ -87,6 +84,12 @@ class DBEntityLoader:
                         match_type=MatchType(row[3] or "none"),
                         retrieval_score=float(row[4] or 0.0),
                     ))
+                
+                if rows:
+                    span.set_attribute("top_candidate.asin", rows[0][0])
+                    span.set_attribute("top_candidate.match_type", rows[0][3])
+                    span.set_attribute("top_candidate.score", float(rows[0][4]))
+
 
                 return candidates
 

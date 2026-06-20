@@ -92,6 +92,11 @@ def validate_answer(answer:str, query:str) -> GenerationValidationResult:
             )
 
         span.set_attribute("validation.status", "passed")
+        
+        span.set_attribute("validation.citation_count", citation_count)
+        span.set_attribute("validation.coverage_score", coverage_score)
+        span.set_attribute("validation.has_refusal", signals.has_refusal_pattern)
+        
         return GenerationValidationResult(
             status=GenerationStatus.PASSED,
             score=1.0,

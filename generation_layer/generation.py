@@ -1,7 +1,6 @@
 import logging
 import re
 
-from langchain_groq import ChatGroq
 from opentelemetry import trace
 
 from config.settings import settings
@@ -21,71 +20,72 @@ from generation_layer.prompts import(
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-llm = ChatGroq(
-    model="llama-3.1-8b-instant",
-    temperature=0,
-    api_key=settings.groq_api_key,
-)
 
-CTX_PATTERN = re.compile(f"\[CTX_(\d+)\]")
+CTX_PATTERN = re.compile(r"\[CTX_(\d+)\]")
 
 
-def select_prompt(context: GenerationContext) -> str:
-    intent = context.intent_type
+class AnswerGeneration:
+    def __init__(self, model):
+        self.model = model
 
-    if intent == "lookup":
-        return build_lookup_prompt(context.context, context.original_query)
+    def select_prompt(self, context: GenerationContext) -> str:
+        intent = context.intent_type
+
+        if intent == "lookup":
+            return build_lookup_prompt(context.context, context.original_query)
+        
+        elif intent == "comparison":
+            return build_comparison_prompt(context.context, context.original_query)
+        
+        elif intent == "recommendation":
+            return build_recommendation_prompt(context.context, context.original_query)
+        
+        else:
+            raise ValueError(f"Unsupported intent type: {intent} — will be implemented later in adaptive routing")
+        
+
+
+    def resolve_citations(self, context: GenerationContext, answer: str):
+
+        with tracer.start_as_current_span("resolve_citations") as span:
+            citations = []
+            used_ctx_ids = set(CTX_PATTERN.findall(answer))
+            span.set_attribute("citations.referenced_count", len(used_ctx_ids))
     
-    elif intent == "comparison":
-        return build_comparison_prompt(context.context, context.original_query)
-    
-    elif intent == "recommendation":
-        return build_recommendation_prompt(context.context, context.original_query)
-    
-    else:
-        raise ValueError(f"Unsupported intent type: {intent} — will be implemented later in adaptive routing")
-    
-
-
-def resolve_citations(context: GenerationContext, answer: str):
-
-    with tracer.start_as_current_span("resolve_citations") as span:
-        citations = []
-        used_ctx_ids = set(CTX_PATTERN.findall(answer))
-        span.set_attribute("citations.referenced_count", len(used_ctx_ids))
- 
-        for ctx_num in sorted(used_ctx_ids, key=int):
-            ctx_key = f"CTX_{ctx_num}"
-            result = context.citation_lookup.get(ctx_key)
-            if result is None:
-                continue
-            citations.append(
-                GeneratedCitation(
-                    citation_id=ctx_key,
-                    asin=result.asin,
-                    review_id=result.review_id,
-                    evidence_text=result.text,
-                    retrieval_type=result.source,
+            for ctx_num in sorted(used_ctx_ids, key=int):
+                ctx_key = f"CTX_{ctx_num}"
+                result = context.citation_lookup.get(ctx_key)
+                if result is None:
+                    continue
+                citations.append(
+                    GeneratedCitation(
+                        citation_id=ctx_key,
+                        asin=result.asin,
+                        review_id=result.review_id,
+                        evidence_text=result.text,
+                        retrieval_type=result.source,
+                    )
                 )
-            )
- 
-        span.set_attribute("citations.resolved_count", len(citations))
-        return citations
+    
+            span.set_attribute("citations.resolved_count", len(citations))
+            return citations
 
 
-def generate_answer(context: GenerationContext) -> str:
+    def generate_answer(self, context: GenerationContext) -> str:
 
-    with tracer.start_as_current_span("answer_generation") as span:
+        with tracer.start_as_current_span("answer_generation") as span:
 
-        span.set_attribute("generation.query", context.original_query)
-        span.set_attribute("generation.context_keys", len(context.citation_lookup))
-        span.set_attribute("generation.context_size", len(context.context))
-        prompt = select_prompt(context)
+            span.set_attribute("generation.query", context.original_query)
+            span.set_attribute("generation.context_keys", len(context.citation_lookup))
+            span.set_attribute("generation.context_size", len(context.context))
+            span.set_attribute("generation.intent", context.intent_type)
+            
+            prompt = self.select_prompt(context)
 
-        result = safe_llm_call(llm, prompt, mode="raw")
+            result = safe_llm_call(self.model, prompt, mode="raw")
 
-        answer_text = result["raw"].strip()
+            answer_text = result["raw"].strip()
 
-        span.set_attribute("answer.length", len(answer_text))
+            span.set_attribute("answer.length", len(answer_text))
 
-        return answer_text
+            return answer_text
