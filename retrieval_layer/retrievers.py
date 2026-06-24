@@ -1,5 +1,6 @@
 import logging
 import psycopg2
+import re
 
 from typing import Optional
 from qdrant_client import QdrantClient
@@ -37,55 +38,67 @@ def compute_signals(score_values: list[float]) -> RetrievalRawSignals:
         score_distribution=score_values,
     )
 
-def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None, top_k: int = 5,) -> RetrievalBundle:
+def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None, top_k: int = 5, asin: Optional[str] = None) -> RetrievalBundle:
     
     identifier = entity or query
-    if not identifier:
-        raise ValueError("sparse_fact_retrieval requires either entity or query")
-
+    if not identifier and not asin:
+        raise ValueError("sparse_fact_retrieval requires asin, entity, or query")
+ 
     with tracer.start_as_current_span("sparse_fact_retrieval") as span:
-        span.set_attribute("retrieval.identifier", identifier)
+        span.set_attribute("retrieval.identifier", identifier or "")
+        span.set_attribute("retrieval.asin", asin or "")
         span.set_attribute("retrieval.top_k", top_k)
-        span.set_attribute("retrieval.source", "postgres_fts")
-
-        try: 
-            sql_query = """
-                SELECT asin, title, brand, category, main_cat, description, feature, price, price_raw,
-                    ts_rank_cd(search_vector, websearch_to_tsquery('english', %s)) AS score
-                FROM products_table
-                WHERE search_vector @@ websearch_to_tsquery('english', %s)
-                ORDER BY score DESC
-                LIMIT %s;
-            """
-
+        span.set_attribute("retrieval.source", "postgres_asin_lookup" if asin else "postgres_fts")
+ 
+        try:
+            if asin:
+                sql_query = """
+                    SELECT asin, title, brand, category, main_cat, description, feature, price, price_raw,
+                        1.0 AS score
+                    FROM products_table
+                    WHERE asin = %s
+                    LIMIT %s;
+                """
+                params = (asin, top_k)
+            else:
+                sql_query = """
+                    SELECT asin, title, brand, category, main_cat, description, feature, price, price_raw,
+                        ts_rank_cd(search_vector, websearch_to_tsquery('english', %s)) AS score
+                    FROM products_table
+                    WHERE search_vector @@ websearch_to_tsquery('english', %s)
+                    ORDER BY score DESC
+                    LIMIT %s;
+                """
+                params = (identifier, identifier, top_k)
+ 
             with get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(sql_query, (identifier, identifier, top_k))
+                    cur.execute(sql_query, params)
                     results = cur.fetchall()
-
+ 
             retrieval_results = []
             for rank, row in enumerate(results, start=1):
-                asin, title, brand, category, main_cat, description, feature, price, price_raw, score = row
-
+                row_asin, title, brand, category, main_cat, description, feature, price, price_raw, score = row
+ 
                 text = f"""
                     PRODUCT:
                     Title: {title}
                     Brand: {brand}
                     Category: {main_cat}
                     Price: {price}
-
+ 
                     Description:
                     {description}
                     Features:
                     {feature}
                     """.strip()
-
+ 
                 retrieval_results.append(
                     RetrievalResult(
                         source="sparse_product",
-                        doc_id=asin,
-                        asin=asin,
-                        text=text,  
+                        doc_id=row_asin,
+                        asin=row_asin,
+                        text=text,
                         score=float(score),
                         rank=rank,
                         metadata={
@@ -100,26 +113,26 @@ def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None,
                         },
                     )
                 )
-
-            score_values = [float(row[9]) for row in results] 
+ 
+            score_values = [float(row[9]) for row in results]
             span.set_attribute("retrieval.result_count", len(retrieval_results))
-            
+ 
             if retrieval_results:
                 span.set_attribute("retrieval.status", "success")
             else:
-                span.set_attribute("retrieval.status",  "miss")
-
+                span.set_attribute("retrieval.status", "miss")
+ 
             top_score = max(score_values) if score_values else 0.0
-
+ 
             span.set_attribute("retrieval.top_score", top_score)
-
+ 
             span.set_attribute(
                 "retrieval.strength",
                 "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
             )
-
+ 
             span.set_attribute("retrieval.signal_density", len(score_values))
-
+ 
             return RetrievalBundle(
                 entity=entity,
                 query=query,
@@ -128,13 +141,14 @@ def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None,
                 items=retrieval_results,
                 raw_signals=compute_signals(score_values),
             )
-
+ 
         except Exception as e:
             span.set_attribute("retrieval.status", "error")
             span.set_attribute("retrieval.result_count", 0)
             span.record_exception(e)
             logger.exception("sparse_fact_retrieval failed")
             raise
+ 
 
 
 def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
@@ -403,52 +417,111 @@ def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> Retriev
 def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
 
     with tracer.start_as_current_span("candidate_gen_retrieval") as span:
+
         span.set_attribute("retrieval.query", query)
         span.set_attribute("retrieval.top_k", top_k)
         span.set_attribute("retrieval.source", "candidate_gen")
 
         try:
-            sparse_bundle = sparse_fact_retrieval(query=query, top_k=20)
-            fts_bundle = review_fts_retrieval(query=query, top_k=20)
+            # ----------------------------
+            # STEP 1: HARD QUERY ENTITY PRESERVATION (CRITICAL FIX)
+            # ----------------------------
+            query_lower = query.lower()
 
-            sparse_items = sparse_bundle.items[:top_k]
-            candidate_asins = {item.asin for item in sparse_items if item.asin}
+            # Extract device-like tokens (simple but stable heuristic)
+            device_tokens = set(re.findall(r'\b[a-z]*\d+[a-z]*\b|\biphone\b|\bsamsung\b|\bhuawei\b', query_lower))
 
-            # filter reviews to only matching ASINs
-            matched_reviews = [item for item in fts_bundle.items if item.asin in candidate_asins]
+            # Remove generic noise but DO NOT delete structure aggressively
+            SOFT_NOISE = {
+                "recommend", "suggest", "show", "find", "looking",
+                "for", "with", "a", "an", "or", "and"
+            }
 
-            candidates = sparse_items + matched_reviews
-            score_values = [item.score for item in candidates]
+            cleaned_query_tokens = [
+                t for t in re.findall(r'\b\w+\b', query_lower)
+                if t not in SOFT_NOISE
+            ]
+
+            entity_query = " ".join(cleaned_query_tokens)
+
+            # If we have device signal, preserve it explicitly
+            if device_tokens:
+                entity_query = " ".join(sorted(device_tokens)) + " " + entity_query
+
+            span.set_attribute("retrieval.entity_query", entity_query)
+
+            # ----------------------------
+            # STEP 2: PARALLEL RETRIEVAL (UNCHANGED BUT STABLE INPUT)
+            # ----------------------------
+            sparse_bundle = sparse_fact_retrieval(query=entity_query, top_k=50)
+            fts_bundle = review_fts_retrieval(query=query, top_k=50)
+
+            # ----------------------------
+            # STEP 3: CANDIDATE BUILD (MAJOR FIX)
+            # ----------------------------
+
+            # 3.1 Primary candidate pool = sparse retrieval ONLY
+            primary_items = sparse_bundle.items[:top_k]
+
+            # 3.2 Build ASIN whitelist from primary only
+            candidate_asins = {item.asin for item in primary_items if item.asin}
+
+            # 3.3 Attach review signals ONLY for existing candidates
+            review_items = [
+                item for item in fts_bundle.items
+                if item.asin in candidate_asins
+            ]
+
+            # ----------------------------
+            # STEP 4: SCORE NORMALIZATION (FIXED BIAS)
+            # ----------------------------
+            def normalize(item):
+                # sparse is primary signal
+                if item in primary_items:
+                    item.score = item.score * 1.0
+                else:
+                    # review boost is capped
+                    item.score = item.score * 0.3
+                return item
+
+            primary_items = [normalize(i) for i in primary_items]
+            review_items = [normalize(i) for i in review_items]
+
+            candidates = primary_items + review_items
+
+            # ----------------------------
+            # STEP 5: NO SELF-DESTRUCTIVE QUERY RELAXATION (IMPORTANT FIX)
+            # ----------------------------
+            if not candidates:
+                fallback_query = " ".join(device_tokens) if device_tokens else query_lower
+                span.set_attribute("retrieval.fallback_query", fallback_query)
+
+                sparse_bundle = sparse_fact_retrieval(query=fallback_query, top_k=top_k)
+                candidates = sparse_bundle.items
+
+            # ----------------------------
+            # STEP 6: METRICS
+            # ----------------------------
+            scores = [c.score for c in candidates]
 
             span.set_attribute("retrieval.result_count", len(candidates))
-
-            if candidates:
-                span.set_attribute("retrieval.status", "success")
-            else:
-                span.set_attribute("retrieval.status", "miss")
-            
-            top_score = max(score_values) if score_values else 0.0
-
-            span.set_attribute("retrieval.top_score", top_score)
+            span.set_attribute("retrieval.status", "success" if candidates else "miss")
 
             span.set_attribute(
                 "retrieval.strength",
-                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
+                "strong" if max(scores, default=0) > 0.7 else
+                "medium" if max(scores, default=0) > 0.3 else "weak"
             )
 
-            span.set_attribute("retrieval.signal_density", len(score_values))
-            
             return RetrievalBundle(
                 query=query,
-                retrieval_type="candidate_gen",
+                retrieval_type="candidate_gen_fixed",
                 execution_status=RetrievalExecutionStatus.SUCCESS,
                 items=candidates,
-                raw_signals=compute_signals(score_values),
+                raw_signals=compute_signals(scores),
             )
 
         except Exception as e:
-            span.set_attribute("retrieval.status", "error")
-            span.set_attribute("retrieval.result_count", 0)
             span.record_exception(e)
-            logger.exception("candidate_gen_retrieval failed")
+            span.set_attribute("retrieval.status", "error")
             raise

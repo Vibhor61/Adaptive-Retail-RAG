@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from contracts.router_contracts import (
     RouterResult,
     ValidationResult,
+    CandidateEntity,
     RankedCandidate,
 )
 
@@ -36,6 +37,8 @@ class RouterLayerOutput(BaseModel):
     router_output: RouterResult | None = None
 
     grounded_entities: List[RankedCandidate]
+
+    candidate_entities: List[CandidateEntity]
 
     system_failure: ExceptionInfo | None = None
 

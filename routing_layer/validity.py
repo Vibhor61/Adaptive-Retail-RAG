@@ -1,4 +1,5 @@
 import re
+import html
 import unicodedata
 
 from contracts.router_contracts import(
@@ -18,6 +19,33 @@ REPEATED_SYMBOL_PATTERN = re.compile(r"([^\w\s])\1{3,}")
 REPEATED_CHAR_PATTERN = re.compile(r"(.)\1{6,}")
 
 
+HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
+ 
+TYPOGRAPHIC_FOLD_MAP = {
+    "\u2018": "'",   # ‘ left single quote
+    "\u2019": "'",   # ’ right single quote / apostrophe
+    "\u201C": '"',   # “ left double quote
+    "\u201D": '"',   # ” right double quote
+    "\u2013": "-",   # – en dash
+    "\u2014": "-",   # — em dash
+    "\u00A0": " ",   # non-breaking space
+    "\u200B": "",    # zero-width space
+}
+
+TYPOGRAPHIC_FOLD_PATTERN = re.compile("|".join(re.escape(k) for k in TYPOGRAPHIC_FOLD_MAP))
+
+
+def clean_text_artifacts(text: str) -> str:
+    if not text:
+        return text
+ 
+    text = HTML_TAG_PATTERN.sub(" ", text)
+    text = html.unescape(text)
+    text = TYPOGRAPHIC_FOLD_PATTERN.sub(lambda m: TYPOGRAPHIC_FOLD_MAP[m.group(0)], text)
+ 
+    return text
+
+
 def _degraded(flag: ValidityFlags, normalized: str, word_count: int) -> ValidationResult:
     return ValidationResult(
         status=ValidityStatus.DEGRADED,
@@ -28,6 +56,7 @@ def _degraded(flag: ValidityFlags, normalized: str, word_count: int) -> Validati
 
 def normalize_query(query: str) -> str:
 
+    query = clean_text_artifacts(query)
     query = unicodedata.normalize("NFKC", query)
     query = query.strip()
     query = re.sub(r"\s+", " ", query)

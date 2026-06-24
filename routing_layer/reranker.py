@@ -85,7 +85,7 @@ class EntityResolver:
             if intent in (Intent.RECOMMENDATION, Intent.UNKNOWN):
                 span.set_attribute("skipped", True)
                 span.set_attribute("skip_reason", intent.value)
-                return []
+                return [], []
 
             try:
                 if not entities:
@@ -93,20 +93,21 @@ class EntityResolver:
                     # no entities from LLM — run full query as fallback
                     candidates = self.loader.candidate_search(query)
                     if not candidates:
-                        return []
+                        return [], []
                     ranked = self.reranker.rerank(query=query, candidates=candidates)
                     if not ranked:
-                        return []
+                        return [], candidates
                     
                     span.set_attribute("fallback_top_title",ranked[0].title or "none")
                     span.set_attribute("fallback_top_score", ranked[0].reranker_score)
 
-                    return [ranked[0]]
+                    return [ranked[0]], candidates
         
                 else:
                     span.set_attribute("fallback_used", False)
 
                 grounded: list[RankedCandidate] = []
+                all_candidates: list[CandidateEntity] = []
 
                 for entity in entities:
                     with tracer.start_as_current_span("resolver.resolve.entity") as entity_span:
@@ -114,7 +115,7 @@ class EntityResolver:
 
                         candidates = self.loader.candidate_search(entity)
                         entity_span.set_attribute("num_candidates", len(candidates))
-
+                        all_candidates.extend(candidates)
                         if not candidates:
                             logger.warning("No candidates found for entity=%r", entity)
                             entity_span.set_attribute("found", False)
@@ -135,7 +136,7 @@ class EntityResolver:
 
                 span.set_attribute("num_grounded", len(grounded))
                 span.set_attribute("grounded_asins", str([c.asin for c in grounded]))
-                return grounded
+                return grounded, all_candidates
 
             except Exception as e:
                 span.record_exception(e)

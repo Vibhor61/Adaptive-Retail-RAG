@@ -3,13 +3,10 @@ Data/
 __pycache__/
 *.pyc
 .pytest_cache/
-serving_layer/
 README.md
-tests/
 ingestion.log
 embeddings.log
 orchestration/controller.py
-data_output.txt
-output.txt
-test_dataset.py
-test.py
+/.agents
+project_report.md
+eval/

@@ -44,13 +44,13 @@ B) Implicit/category comparison
 - summarize characteristics of X products
 
 2. recommendation
-Use when the user wants suggestions or options without a specific product in mind.
-Signals: best, recommend, suggest, alternatives, under budget, for gaming, for travel.
+Use when the user wants suggestions, options, or is searching for products based on descriptive features, aesthetics, or categories without a specific known product in mind.
+Signals: find, looking for, best, recommend, suggest, alternatives, under budget, for gaming, for travel.
 entities is always empty.
 
 3. lookup
-Use when the user asks about one or more specific products, models, or brands.
-Includes: specs, price, review, compatibility, features, details.
+Use ONLY when the user asks about one or more specific, named products, exact models, or specific brands. If the user is just describing what a product looks like or does, it is a recommendation, not a lookup.
+Includes: specs, price, review, compatibility, features, details of a KNOWN item.
 entities has one or more items.
 
 4. unknown
@@ -71,8 +71,8 @@ EXAMPLES
 Query: reviews for BrandX case for iPhone 6
 Output: {{"intent": "lookup", "entities": ["BrandX case iPhone 6"]}}
 
-Query: BrandA charger vs BrandB charger for MacBook Pro
-Output: {{"intent": "comparison", "entities": ["BrandA charger MacBook Pro", "BrandB charger MacBook Pro"]}}
+Query: Find playful character cases for a Samsung Galaxy S5 with a cute black design.
+Output: {{"intent": "recommendation", "entities": []}}
 
 Query: specs of ModelX screen protector for LG G5
 Output: {{"intent": "lookup", "entities": ["ModelX screen protector LG G5"]}}
@@ -83,20 +83,11 @@ Output: {{"intent": "comparison", "entities": ["OtterBox Defender", "Speck Candy
 Query: What features are common across Microsoft Lumia cases?
 Output: {{"intent": "comparison", "entities": ["Microsoft Lumia cases"]}}
 
-Query: What do OtterBox phone cases generally have in common?
-Output: {{"intent": "comparison", "entities": ["OtterBox phone cases"]}}
-
 Query: best wireless earbuds under 50 dollars
-Output: {{"intent": "recommendation", "entities": []}}
-
-Query: best phone case for Samsung Galaxy S6
 Output: {{"intent": "recommendation", "entities": []}}
 
 Query: is BrandZ battery good for HTC One
 Output: {{"intent": "lookup", "entities": ["BrandZ battery HTC One"]}}
-
-Query: BrandA earbuds and BrandB headphones reviews
-Output: {{"intent": "lookup", "entities": ["BrandA earbuds", "BrandB headphones"]}}
 
 Query: track my order
 Output: {{"intent": "unknown", "entities": []}}

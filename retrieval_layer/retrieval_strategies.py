@@ -31,6 +31,7 @@ tracer = trace.get_tracer(__name__)
 def sparse(entity: RankedCandidate|None, query: str, top_k: int) -> RetrievalEvaluationBundle:
     bundle = sparse_fact_retrieval(
         entity=entity.title if entity else None,
+        asin=entity.asin if entity else None,
         query=query,
         top_k=top_k,
     )

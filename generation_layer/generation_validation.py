@@ -10,6 +10,23 @@ from contracts.generation_contracts import (
 tracer = trace.get_tracer(__name__)
 CTX_PATTERN = re.compile(r"\[CTX_(\d+)\]")
 
+REFUSAL_PATTERNS = {
+    "i don't know",
+    "i do not know",
+    "not enough information",
+    "insufficient information",
+    "cannot determine",
+    "i don't have enough information",
+    "i do not have enough information",
+    "i couldn't find enough relevant information",
+    "i could not find enough relevant information",
+    "i don't have sufficient information",
+    "i don't have access to",
+    "unable to answer",
+    "cannot answer this",
+    "can't answer this",
+}
+
 
 def validate_answer(answer:str, query:str) -> GenerationValidationResult:
     
@@ -36,13 +53,9 @@ def validate_answer(answer:str, query:str) -> GenerationValidationResult:
             has_citations=has_citations,
             citation_count=citation_count,
             coverage_score=coverage_score,
-            has_refusal_pattern=any(
-                p in normalized for p in [
-                    "i don't know",
-                    "not enough information",
-                    "insufficient information",
-                    "cannot determine"
-                ]
+            has_refusal_pattern=(
+                len(normalized) <= 300 and
+                any(p in normalized for p in REFUSAL_PATTERNS)
             )
         )
 

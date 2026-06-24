@@ -3,6 +3,7 @@ import logging
 from psycopg2 import pool
 from opentelemetry import trace
 
+from routing_layer.validity import clean_text_artifacts
 from contracts.router_contracts import MatchType, CandidateEntity
 from config.settings import settings
 
@@ -79,8 +80,8 @@ class DBEntityLoader:
                 for row in rows:
                     candidates.append(CandidateEntity(
                         asin=row[0] or None,
-                        title=row[1] or "unknown",
-                        brand=row[2] or None,
+                        title=clean_text_artifacts(row[1]) if row[1] else "unknown",
+                        brand=clean_text_artifacts(row[2]) if row[2] else None,
                         match_type=MatchType(row[3] or "none"),
                         retrieval_score=float(row[4] or 0.0),
                     ))

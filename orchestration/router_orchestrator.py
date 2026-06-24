@@ -86,7 +86,7 @@ class RouterOrchestrator:
 
                 span.set_attribute("router.evidence_type", evidence_type.value)
 
-                resolved = self.resolver.resolve(
+                resolved, candidate_entities = self.resolver.resolve(
                     query=normalized_query,
                     intent=intent,
                     entities=entities,
@@ -113,6 +113,7 @@ class RouterOrchestrator:
                     validity_result=validity_result,
                     router_output=router_result,
                     grounded_entities=resolved,
+                    candidate_entities=candidate_entities,
                     system_failure=None,
                 )
 
@@ -130,6 +131,7 @@ class RouterOrchestrator:
                     validity_result=validity_result,
                     router_output=None,
                     grounded_entities=[],
+                    candidate_entities=candidate_entities,
                     system_failure=ExceptionInfo(
                         exception_type=type(e).__name__,
                         message=str(e),
