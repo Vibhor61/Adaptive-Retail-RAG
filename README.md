@@ -6,6 +6,10 @@ Built to simulate a production-style RAG platform focused on multi-layered guard
 
 **Focus:** End-to-end RAG lineage from raw review/product ingestion → hybrid vector search → stateful query orchestration → cited generation → validation.
 
+---
+## Demo Video
+
+https://github.com/user-attachments/assets/0894868d-0d64-463a-b094-adc05f67b4fa
 
 ---
 ## System Guarantees
@@ -321,7 +325,8 @@ flowchart LR
 
 The system has native OpenTelemetry instrumentation capturing spans such as the main pipeline, intent classifier, candidate search, reranking, hybrid fusion retrieval, and answer validation. These spans are visualized in Arize Phoenix for tracing and debuggability.
 
-![Phoenix_Trace](Data/phoenix_trace.png)
+<img width="1919" height="978" alt="phoenix_trace" src="https://github.com/user-attachments/assets/37f623cb-6f0a-4976-9467-ae1ed482f30d" />
+
 ---
 
 ## Running the Pipeline
