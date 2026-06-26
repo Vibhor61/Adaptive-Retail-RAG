@@ -1,3 +1,9 @@
+"""
+Retrieval orchestrator module.
+Coordinates different retrieval workflows based on the identified intent type.
+Converts router outputs into retrieval plans and executes the appropriate retrieval strategy.
+"""
+
 import logging
 
 from opentelemetry import trace
@@ -26,6 +32,10 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 def make_retrieval_plan(input: RouterLayerOutput)->RetrievalPlan:
+    """
+    Creates a retrieval plan from the router output.
+    Extracts query, intent, evidence type, and entities to guide retrieval.
+    """
 
     return RetrievalPlan(
         original_query=input.normalized_query,
@@ -36,6 +46,11 @@ def make_retrieval_plan(input: RouterLayerOutput)->RetrievalPlan:
     )
 
 def run_retrieval_pipeline(input: RouterLayerOutput) -> RetrievalLayerOutput:
+    """
+    Executes the retrieval pipeline for a given router output.
+    Dispatches to lookup, comparison, or recommendation workflows based on intent,
+    handling and logging any retrieval failures.
+    """
     
     with tracer.start_as_current_span("retrieval_pipeline") as span:
 

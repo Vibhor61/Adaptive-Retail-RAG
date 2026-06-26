@@ -1,3 +1,9 @@
+"""
+This module defines the system prompts and prompt templates used for generating responses.
+It includes base instructions for the LLM regarding evidence grounding and citation formatting.
+Helper functions construct specific prompt variations for lookup, comparison, and recommendation intents.
+"""
+
 BASE_SYSTEM_PROMPT = """
 You are a retrieval-grounded e-commerce product intelligence assistant.
 
@@ -52,7 +58,14 @@ Before answering:
 4. Do NOT refuse if partial evidence exists
    """
 
-def build_lookup_prompt(context: str, query: str) -> str:
+def build_lookup_prompt(context: str, query: str, chat_history: list = None) -> str:
+    """
+    Constructs a prompt tailored for simple information lookup queries.
+    Combines the base system prompt with the user's query and evidence context.
+    """
+    history_str = ""
+    if chat_history:
+        history_str = "HISTORY:\n" + "\n".join(f"{h['role']}: {h['content']}" for h in chat_history) + "\n"
 
     return f"""
         {BASE_SYSTEM_PROMPT}
@@ -60,9 +73,9 @@ def build_lookup_prompt(context: str, query: str) -> str:
         TASK:
         Answer the user's product-related question using only the evidence below.
 
+        {history_str}
         QUERY:
         {query}
-
         EVIDENCE:
         {context}
 
@@ -81,7 +94,14 @@ def build_lookup_prompt(context: str, query: str) -> str:
         Answer only.
     """
 
-def build_comparison_prompt(context: str, query: str) -> str:
+def build_comparison_prompt(context: str, query: str, chat_history: list = None) -> str:
+    """
+    Constructs a prompt tailored for comparing multiple products.
+    Returns a formatted prompt string enforcing an attribute-based comparison format using the provided context.
+    """
+    history_str = ""
+    if chat_history:
+        history_str = "HISTORY:\n" + "\n".join(f"{h['role']}: {h['content']}" for h in chat_history) + "\n"
     
     return f"""
         {BASE_SYSTEM_PROMPT}
@@ -89,9 +109,9 @@ def build_comparison_prompt(context: str, query: str) -> str:
         TASK:
         Compare products using ONLY the provided evidence.
 
+        {history_str}
         QUERY:
         {query}
-
         EVIDENCE:
         {context}
 
@@ -120,7 +140,14 @@ def build_comparison_prompt(context: str, query: str) -> str:
         * ...
         """
 
-def build_recommendation_prompt(context: str, query: str) -> str:
+def build_recommendation_prompt(context: str, query: str, chat_history: list = None) -> str:
+    """
+    Constructs a prompt tailored for recommending products based on the query.
+    Returns a formatted prompt string that requires the LLM to justify recommendations using provided evidence.
+    """
+    history_str = ""
+    if chat_history:
+        history_str = "HISTORY:\n" + "\n".join(f"{h['role']}: {h['content']}" for h in chat_history) + "\n"
 
     return f"""
         {BASE_SYSTEM_PROMPT}
@@ -128,9 +155,9 @@ def build_recommendation_prompt(context: str, query: str) -> str:
         TASK:
         Recommend products using ONLY the provided evidence.
 
+        {history_str}
         QUERY:
         {query}
-
         EVIDENCE:
         {context}
 

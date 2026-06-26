@@ -1,3 +1,8 @@
+"""
+Telemetry configuration module for the RAG pipeline.
+Sets up and manages OpenTelemetry tracing capabilities.
+Handles initialization and shutdown of the tracer provider and exporter.
+"""
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -10,6 +15,10 @@ _tracer_provider = None
 
 
 def setup_tracing():
+    """
+    Initializes the OpenTelemetry tracer provider and exporter.
+    Configures batch processing and routes traces to the Phoenix instance.
+    """
     global _tracer_provider
 
     if _tracer_provider is not None:
@@ -38,6 +47,10 @@ def setup_tracing():
 
 
 def shutdown_tracing():
+    """
+    Forces a flush of pending traces and shuts down the tracer provider.
+    Ensures telemetry data is properly exported before application exit.
+    """
     global _tracer_provider
 
     if _tracer_provider:

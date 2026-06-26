@@ -1,3 +1,9 @@
+"""
+This module defines the state structures used throughout the LangGraph workflow.
+It provides TypedDict definitions for various stages including query processing, routing, retrieval, and generation.
+These state schemas ensure consistent data flow and structure across all graph nodes.
+"""
+
 from typing import TypedDict, Optional, List, Literal
 from contracts.router_contracts import RankedCandidate
 from contracts.orchestration_contracts import (

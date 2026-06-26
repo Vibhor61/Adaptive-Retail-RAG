@@ -1,3 +1,11 @@
+"""
+Generates and stores embeddings for review texts.
+
+This module fetches unprocessed reviews from a PostgreSQL database,
+generates embeddings using SentenceTransformers, and stores the resulting
+vectors in a Qdrant vector database.
+"""
+
 import pandas as pd
 import logging
 import psycopg2
@@ -29,6 +37,9 @@ BATCH_SIZE = 10000
 model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 def get_connection():
+    """
+    Establishes and returns a connection to the PostgreSQL database.
+    """
     try:
         conn = psycopg2.connect(settings.postgres_url)
         logger.info(f"Successfully connected to PostgreSQL database: {DB_CONFIG['database']}")
@@ -39,6 +50,10 @@ def get_connection():
 
 
 def fetch_reviews(conn):
+    """
+    Fetches a batch of reviews that have not yet been embedded.
+    Combines review and summary texts into a single string for embedding.
+    """
     try:
         with conn.cursor() as cur:
             query = """
@@ -62,6 +77,10 @@ def fetch_reviews(conn):
     
 
 def mark_embeddings_complete(conn, model: str, review_ids: list[str]):
+    """
+    Updates the database to mark a list of reviews as successfully embedded.
+    Records the timestamp and the embedding model used.
+    """
     try:
         with conn.cursor() as cur:
             query = """
@@ -78,6 +97,10 @@ def mark_embeddings_complete(conn, model: str, review_ids: list[str]):
 
 
 def create_embeddings(conn, df, qdrant_batch_size:int = 256):
+    """
+    Generates embeddings for review texts and upserts them to Qdrant.
+    Also updates the PostgreSQL database to mark them as completed.
+    """
     try:
         logger.info(f"Starting embedding creation for {len(df)} reviews")
         client = QdrantClient(url=settings.qdrant_url)
@@ -138,6 +161,10 @@ def create_embeddings(conn, df, qdrant_batch_size:int = 256):
 
 
 def main():
+    """
+    Main execution loop that continuously fetches and processes batches
+    of reviews until no unprocessed reviews remain.
+    """
     logger.info("Starting embeddings main process")
     conn = get_connection()
     try:

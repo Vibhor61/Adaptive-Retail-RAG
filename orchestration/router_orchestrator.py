@@ -1,17 +1,15 @@
+"""
+Router orchestrator module.
+Analyzes the incoming query to determine its structure, intent, and evidence type.
+Resolves grounded entities and structures the routing output for the retrieval layer.
+"""
+
 import logging
-import sys
 
 from config.settings import settings
 
-from pathlib import Path
 from opentelemetry import trace
 from sentence_transformers import CrossEncoder
-
-CURRENT = Path(__file__).resolve().parent
-PROJECT = CURRENT.parent
-
-if str(PROJECT) not in sys.path:
-    sys.path.insert(0, str(PROJECT))
 
 from routing_layer.validity import (
     validate_query_structure
@@ -61,6 +59,11 @@ class RouterOrchestrator:
 
 
     def run(self, query: str) -> RouterLayerOutput:
+        """
+        Executes the routing pipeline for an input query.
+        Validates the query, classifies intent and evidence type, resolves entities,
+        and returns the consolidated routing output.
+        """
 
         validity_result = None 
         with tracer.start_as_current_span("router_pipeline") as span:

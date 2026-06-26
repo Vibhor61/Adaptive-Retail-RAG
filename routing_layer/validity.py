@@ -1,3 +1,8 @@
+"""
+Handles validation and sanitization of raw input queries.
+Cleans up HTML and typographic artifacts, checks for anomalies like excessive length
+or symbol spam, and evaluates the query's structural validity.
+"""
 import re
 import html
 import unicodedata
@@ -36,6 +41,10 @@ TYPOGRAPHIC_FOLD_PATTERN = re.compile("|".join(re.escape(k) for k in TYPOGRAPHIC
 
 
 def clean_text_artifacts(text: str) -> str:
+    """
+    Removes HTML tags, unescapes HTML entities, and normalizes typographic artifacts.
+    Replaces special quotes, dashes, and spaces with standard ASCII equivalents.
+    """
     if not text:
         return text
  
@@ -47,6 +56,10 @@ def clean_text_artifacts(text: str) -> str:
 
 
 def _degraded(flag: ValidityFlags, normalized: str, word_count: int) -> ValidationResult:
+    """
+    Constructs a ValidationResult with a DEGRADED status and the specified anomaly flag.
+    Used for early exits when a query fails basic structural checks.
+    """
     return ValidationResult(
         status=ValidityStatus.DEGRADED,
         normalized_query=normalized,
@@ -55,6 +68,10 @@ def _degraded(flag: ValidityFlags, normalized: str, word_count: int) -> Validati
     )
 
 def normalize_query(query: str) -> str:
+    """
+    Applies text artifact cleaning, Unicode normalization, and whitespace collapse.
+    Returns a clean, standardized string ready for downstream processing.
+    """
 
     query = clean_text_artifacts(query)
     query = unicodedata.normalize("NFKC", query)
@@ -65,6 +82,10 @@ def normalize_query(query: str) -> str:
 
 
 def compute_symbol_ratio(text: str) -> float:
+    """
+    Calculates the proportion of non-alphanumeric, non-whitespace characters in a string.
+    Returns a float representing the symbol ratio.
+    """
     if not text:
         return 0.0
 
@@ -74,6 +95,10 @@ def compute_symbol_ratio(text: str) -> float:
 
 
 def validate_query_structure(query: str) -> ValidationResult:
+    """
+    Evaluates the structural integrity of a query based on length, symbols, and artifacts.
+    Returns a ValidationResult with a classification of EXECUTABLE, SUSPICIOUS, or DEGRADED.
+    """
 
     normalized = normalize_query(query)
     

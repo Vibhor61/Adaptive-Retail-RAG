@@ -1,3 +1,8 @@
+"""
+Provides functionality for determining user intent and extracting entities from queries.
+Uses an LLM to classify intent into lookup, comparison, recommendation, or unknown,
+and extracts product entities to determine the query's structural complexity.
+"""
 import json
 import logging
 import re
@@ -5,7 +10,7 @@ import re
 from opentelemetry import trace
 
 from contracts.router_contracts import Intent, EntityStructure
-from utils import safe_llm_call
+from utility_functions.llm_utils import safe_llm_call
 
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
@@ -19,6 +24,8 @@ INTENT_TOKEN_MAP = {
 }
 
 LLM_PROMPT = """You are an intent and entity classifier for an electronics retail search system.
+
+Output MUST be a JSON object, not python code. Do NOT output python code blocks, markdown blocks, or any explanation. Return raw JSON ONLY.
 
 Return a JSON object with exactly these two fields:
 - intent: one of [lookup, comparison, recommendation, unknown]
@@ -101,6 +108,10 @@ class IntentClassifier:
         self.llm = llm
 
     def entity_structure(self, intent, entities: list[str]) -> EntityStructure:
+        """
+        Determines the entity structure based on the classified intent and extracted entities.
+        Classifies into SINGLE, MULTI_EXPLICIT, or MULTI_IMPLICIT based on entity counts.
+        """
         
         if intent == Intent.COMPARISON:
             if len(entities) >= 2:
@@ -118,6 +129,10 @@ class IntentClassifier:
 
 
     def classify_intent(self, query: str) -> tuple[Intent, list[str], EntityStructure]:
+        """
+        Uses an LLM to classify user intent and extract relevant product entities.
+        Returns the resolved intent, the list of extracted entities, and the entity structure.
+        """
         with tracer.start_as_current_span("router.classify_intent") as span:
             span.set_attribute("query", query)
             try:

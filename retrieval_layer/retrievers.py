@@ -1,3 +1,7 @@
+"""
+Implements the core retrieval functions for various data sources, including Postgres and Qdrant.
+Provides sparse, dense, and fusion retrieval methods, executing database queries and computing retrieval signals.
+"""
 import logging
 import psycopg2
 import re
@@ -12,8 +16,9 @@ from contracts.retrieval_contracts import (
     RetrievalResult,
     RetrievalBundle,
     RetrievalExecutionStatus,
-    RetrievalRawSignals
 )
+
+from utility_functions.retrieval_utils import compute_signals, record_retrieval_telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -23,22 +28,13 @@ tracer = trace.get_tracer(__name__)
 qdrant_client = QdrantClient(url=settings.qdrant_url)
 embedder = SentenceTransformer(EMBEDDING_MODEL)
 
-EMPTY_SIGNALS = RetrievalRawSignals(top_score=0.0, avg_score=0.0, score_distribution=[])
-
 def get_connection():
     return psycopg2.connect(settings.postgres_url)
-
-
-def compute_signals(score_values: list[float]) -> RetrievalRawSignals:
-    if not score_values:
-        return EMPTY_SIGNALS
-    return RetrievalRawSignals(
-        top_score=max(score_values),
-        avg_score=sum(score_values) / len(score_values),
-        score_distribution=score_values,
-    )
-
 def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None, top_k: int = 5, asin: Optional[str] = None) -> RetrievalBundle:
+    """
+    Performs full-text or exact ASIN search in the PostgreSQL products table.
+    Returns a RetrievalBundle containing sparse product matches.
+    """
     
     identifier = entity or query
     if not identifier and not asin:
@@ -115,23 +111,7 @@ def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None,
                 )
  
             score_values = [float(row[9]) for row in results]
-            span.set_attribute("retrieval.result_count", len(retrieval_results))
- 
-            if retrieval_results:
-                span.set_attribute("retrieval.status", "success")
-            else:
-                span.set_attribute("retrieval.status", "miss")
- 
-            top_score = max(score_values) if score_values else 0.0
- 
-            span.set_attribute("retrieval.top_score", top_score)
- 
-            span.set_attribute(
-                "retrieval.strength",
-                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
-            )
- 
-            span.set_attribute("retrieval.signal_density", len(score_values))
+            record_retrieval_telemetry(span, score_values, len(retrieval_results))
  
             return RetrievalBundle(
                 entity=entity,
@@ -152,6 +132,10 @@ def sparse_fact_retrieval(entity: Optional[str]=None, query: Optional[str]=None,
 
 
 def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
+    """
+    Performs full-text search on product reviews within PostgreSQL.
+    Returns a RetrievalBundle containing matched reviews and associated product details.
+    """
 
     with tracer.start_as_current_span("review_fts_retrieval") as span:
         span.set_attribute("retrieval.query", query)
@@ -206,23 +190,7 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
                 )
 
             score_values = [float(row[7]) for row in results]
-            span.set_attribute("retrieval.result_count", len(retrieval_results))
-            
-            if retrieval_results:
-                span.set_attribute("retrieval.status", "success")
-            else:
-                span.set_attribute("retrieval.status", "miss")
-
-            top_score = max(score_values) if score_values else 0.0
-
-            span.set_attribute("retrieval.top_score", top_score)
-
-            span.set_attribute(
-                "retrieval.strength",
-                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
-            )
-
-            span.set_attribute("retrieval.signal_density", len(score_values))
+            record_retrieval_telemetry(span, score_values, len(retrieval_results))
 
             return RetrievalBundle(
                 query=query,
@@ -241,6 +209,10 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
 
 
 def dense_review_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
+    """
+    Performs dense vector similarity search on review embeddings using Qdrant.
+    Returns a RetrievalBundle with review texts and metadata for the closest semantic matches.
+    """
 
     with tracer.start_as_current_span("dense_review_retrieval") as span:
         span.set_attribute("retrieval.query", query)
@@ -296,23 +268,7 @@ def dense_review_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
             )
 
             score_values = [float(item.score) for item in points]
-            span.set_attribute("retrieval.result_count", len(retrieval_results))
-
-            if retrieval_results:
-                span.set_attribute("retrieval.status", "success")
-            else:
-                span.set_attribute("retrieval.status", "miss")
-
-            top_score = max(score_values) if score_values else 0.0
-
-            span.set_attribute("retrieval.top_score", top_score)
-
-            span.set_attribute(
-                "retrieval.strength",
-                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
-            )
-
-            span.set_attribute("retrieval.signal_density", len(score_values))
+            record_retrieval_telemetry(span, score_values, len(retrieval_results))
 
             return RetrievalBundle(
                 query=query,
@@ -331,6 +287,10 @@ def dense_review_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
 
 
 def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> RetrievalBundle:
+    """
+    Combines results from full-text review search and dense review search using reciprocal rank fusion (RRF).
+    Returns a fused RetrievalBundle containing the best items from both sources.
+    """
 
     with tracer.start_as_current_span("fusion_retrieval") as span:
         span.set_attribute("retrieval.query", query)
@@ -380,23 +340,7 @@ def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> Retriev
                 score_values.append(float(score))
                 fused_results.append(base)
 
-            span.set_attribute("retrieval.result_count", len(fused_results))
-
-            if fused_results:
-                span.set_attribute("retrieval.status", "success")
-            else:
-                span.set_attribute("retrieval.status", "miss")
-            
-            top_score = max(score_values) if score_values else 0.0
-
-            span.set_attribute("retrieval.top_score", top_score)
-
-            span.set_attribute(
-                "retrieval.strength",
-                "strong" if top_score > 0.7 else "medium" if top_score > 0.3 else "weak"
-            )
-
-            span.set_attribute("retrieval.signal_density", len(score_values))
+            record_retrieval_telemetry(span, score_values, len(fused_results))
 
             return RetrievalBundle(
                 query=query,
@@ -415,6 +359,10 @@ def fusion_retrieval(query: str, top_k: int = 5, fusion_k: int = 60,) -> Retriev
 
 
 def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
+    """
+    Generates broad recommendation candidates by parsing query entities and blending sparse and review signals.
+    Returns a RetrievalBundle with normalized scores for the discovered candidates.
+    """
 
     with tracer.start_as_current_span("candidate_gen_retrieval") as span:
 
@@ -423,15 +371,10 @@ def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
         span.set_attribute("retrieval.source", "candidate_gen")
 
         try:
-            # ----------------------------
-            # STEP 1: HARD QUERY ENTITY PRESERVATION (CRITICAL FIX)
-            # ----------------------------
             query_lower = query.lower()
 
-            # Extract device-like tokens (simple but stable heuristic)
             device_tokens = set(re.findall(r'\b[a-z]*\d+[a-z]*\b|\biphone\b|\bsamsung\b|\bhuawei\b', query_lower))
 
-            # Remove generic noise but DO NOT delete structure aggressively
             SOFT_NOISE = {
                 "recommend", "suggest", "show", "find", "looking",
                 "for", "with", "a", "an", "or", "and"
@@ -444,43 +387,27 @@ def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
 
             entity_query = " ".join(cleaned_query_tokens)
 
-            # If we have device signal, preserve it explicitly
             if device_tokens:
                 entity_query = " ".join(sorted(device_tokens)) + " " + entity_query
 
             span.set_attribute("retrieval.entity_query", entity_query)
 
-            # ----------------------------
-            # STEP 2: PARALLEL RETRIEVAL (UNCHANGED BUT STABLE INPUT)
-            # ----------------------------
             sparse_bundle = sparse_fact_retrieval(query=entity_query, top_k=50)
             fts_bundle = review_fts_retrieval(query=query, top_k=50)
-
-            # ----------------------------
-            # STEP 3: CANDIDATE BUILD (MAJOR FIX)
-            # ----------------------------
-
-            # 3.1 Primary candidate pool = sparse retrieval ONLY
+            
             primary_items = sparse_bundle.items[:top_k]
 
-            # 3.2 Build ASIN whitelist from primary only
             candidate_asins = {item.asin for item in primary_items if item.asin}
 
-            # 3.3 Attach review signals ONLY for existing candidates
             review_items = [
                 item for item in fts_bundle.items
                 if item.asin in candidate_asins
             ]
 
-            # ----------------------------
-            # STEP 4: SCORE NORMALIZATION (FIXED BIAS)
-            # ----------------------------
             def normalize(item):
-                # sparse is primary signal
                 if item in primary_items:
                     item.score = item.score * 1.0
                 else:
-                    # review boost is capped
                     item.score = item.score * 0.3
                 return item
 
@@ -489,9 +416,6 @@ def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
 
             candidates = primary_items + review_items
 
-            # ----------------------------
-            # STEP 5: NO SELF-DESTRUCTIVE QUERY RELAXATION (IMPORTANT FIX)
-            # ----------------------------
             if not candidates:
                 fallback_query = " ".join(device_tokens) if device_tokens else query_lower
                 span.set_attribute("retrieval.fallback_query", fallback_query)
@@ -499,19 +423,8 @@ def candidate_gen_retrieval(query: str,top_k: int = 5) -> RetrievalBundle:
                 sparse_bundle = sparse_fact_retrieval(query=fallback_query, top_k=top_k)
                 candidates = sparse_bundle.items
 
-            # ----------------------------
-            # STEP 6: METRICS
-            # ----------------------------
             scores = [c.score for c in candidates]
-
-            span.set_attribute("retrieval.result_count", len(candidates))
-            span.set_attribute("retrieval.status", "success" if candidates else "miss")
-
-            span.set_attribute(
-                "retrieval.strength",
-                "strong" if max(scores, default=0) > 0.7 else
-                "medium" if max(scores, default=0) > 0.3 else "weak"
-            )
+            record_retrieval_telemetry(span, scores, len(candidates))
 
             return RetrievalBundle(
                 query=query,

@@ -1,3 +1,9 @@
+"""
+This module provides validation logic for generated answers.
+It checks for output quality, citation presence, query coverage, and refusal patterns.
+The validation results inform the system whether the answer meets the minimum criteria or requires a fallback.
+"""
+
 import re
 from opentelemetry import trace
 
@@ -6,9 +12,9 @@ from contracts.generation_contracts import (
     ValidationSignals,
     GenerationValidationResult
 )
+from utility_functions.llm_utils import extract_citation_ids
 
 tracer = trace.get_tracer(__name__)
-CTX_PATTERN = re.compile(r"\[CTX_(\d+)\]")
 
 REFUSAL_PATTERNS = {
     "i don't know",
@@ -29,12 +35,17 @@ REFUSAL_PATTERNS = {
 
 
 def validate_answer(answer:str, query:str) -> GenerationValidationResult:
+    """
+    Evaluates the quality of a generated answer against the original query.
+    Calculates signals like citation count and query coverage to return a GenerationValidationResult,
+    indicating whether the answer passed or failed specific quality checks.
+    """
     
     with tracer.start_as_current_span("answer_validation") as span:
         
         normalized = answer.lower()
 
-        ctx_ids = set(CTX_PATTERN.findall(answer))
+        ctx_ids = extract_citation_ids(answer)
 
         has_citations = len(ctx_ids) > 0
         citation_count = len(ctx_ids)

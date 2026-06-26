@@ -1,3 +1,10 @@
+"""
+Defines the LangGraph state machine for evaluation workflows.
+It integrates routing, retrieval, generation, and clarification nodes,
+along with associated guardrail nodes. The graph routes requests
+based on evaluation logic and returns the compiled execution graph.
+"""
+
 from langgraph.graph import StateGraph, END
 
 from graph_layer.state import GraphState
@@ -17,6 +24,11 @@ from graph_layer.nodes import (
 
 
 def build_eval_graph(router, generation):
+    """
+    Constructs and compiles the evaluation state graph with routing and guardrails.
+    It takes router and generation dependencies as arguments, links nodes and edges,
+    and returns a compiled StateGraph ready for execution.
+    """
 
     router_node = make_router_node(router)
     generation_node = make_generation_node(generation)

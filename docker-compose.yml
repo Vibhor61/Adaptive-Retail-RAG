@@ -26,24 +26,6 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: rag_ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      OLLAMA_NUM_PARALLEL: 1
-      OLLAMA_MAX_LOADED_MODELS: 1
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
   phoenix:
     image: arizephoenix/phoenix:latest
     container_name: rag_phoenix
@@ -67,10 +49,35 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: >-
+      uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      --reload-dir /app/graph_layer
+      --reload-dir /app/generation_layer
+      --reload-dir /app/orchestration
+      --reload-dir /app/retrieval_layer
+      --reload-dir /app/routing_layer
+      --reload-dir /app/config
+      --reload-dir /app/contracts
+      --reload-dir /app/utility_functions
+      --reload-include main.py
     
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag_streamlit
+    env_file: .env
+    environment:
+      - BACKEND_URL=http://fastapi:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      - fastapi
+    volumes:
+      - .:/app
+    command: streamlit run ui.py --server.address 0.0.0.0 --server.port 8501
+
 volumes:
   postgres_data:
   qdrant_data:
-  ollama_data:
   phoenix_data:

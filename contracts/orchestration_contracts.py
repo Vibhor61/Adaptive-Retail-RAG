@@ -1,3 +1,9 @@
+"""
+Defines data models and contracts for the orchestration layer.
+Includes models for router, retrieval, and generation outputs,
+as well as structured guardrail outputs and violation models.
+These models ensure consistent data transfer between system layers.
+"""
 from enum import Enum
 from typing import List
 from pydantic import BaseModel

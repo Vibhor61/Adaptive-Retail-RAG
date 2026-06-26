@@ -1,3 +1,11 @@
+"""
+Helper functions for the data ingestion pipeline.
+
+This module provides utility functions for reading compressed JSONL files,
+normalizing text and prices, generating stable hashes, and extracting
+structured metadata and reviews from raw JSON objects.
+"""
+
 import json
 import gzip
 from typing import  Optional, Tuple
@@ -6,12 +14,20 @@ import re
 
 
 def extract_shard(path:str) :
+    """
+    Opens a file, automatically handling gzip decompression if needed.
+    Returns a text file object.
+    """
     if path.endswith(".gz"):
         return gzip.open(path, "rt", encoding="utf-8", errors="ignore")
     return open(path, "rt", encoding="utf-8", errors="ignore")
 
 
 def iter_rows(path : str) :
+    """
+    Iterates over lines in a JSONL file and yields parsed JSON objects.
+    Skips empty lines and lines with invalid JSON.
+    """
     with extract_shard(path) as file:
         for line in file:
             line = line.strip()
@@ -24,6 +40,10 @@ def iter_rows(path : str) :
 
 
 def stable_hash(*parts: str) -> str:
+    """
+    Generates a stable SHA1 hash from multiple string parts.
+    Useful for creating deterministic IDs like review IDs.
+    """
     h = hashlib.sha1()
     for p in parts:
         h.update((p or "").encode("utf-8", errors="ignore"))
@@ -33,6 +53,9 @@ def stable_hash(*parts: str) -> str:
 
 WS = re.compile(r"\s+")
 def norm_text(x) -> str:
+    """
+    Normalizes text by removing extra whitespace and converting to string.
+    """
     if x is None:
         return ""
     s = str(x).strip()
@@ -41,6 +64,10 @@ def norm_text(x) -> str:
 
 PRICE_CLEAN = re.compile(r"[^\d.]")
 def norm_price(x) -> Optional[float]:
+    """
+    Parses and normalizes price strings into float values.
+    Handles ranges and strips non-numeric characters.
+    """
     if x is None:
         return None
 
@@ -68,6 +95,9 @@ def norm_price(x) -> Optional[float]:
 
 
 def normalize_list_field(value) -> list[str]:
+    """
+    Normalizes a list or string field into a list of cleaned strings.
+    """
     if value is None:
         return []
     
@@ -82,6 +112,9 @@ def normalize_list_field(value) -> list[str]:
 
 
 def normalize_brand(value) -> str:
+    """
+    Normalizes a brand string, mapping empty or generic missing values to empty string.
+    """
     brand = norm_text(value)
 
     if brand.lower() in {
@@ -92,12 +125,19 @@ def normalize_brand(value) -> str:
     return brand
 
 def write_jsonl(path: str, rows) -> None:
+    """
+    Writes a list of dictionaries to a JSON lines file.
+    """
     with open(path, "w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
 def extract_metadata(obj: dict) -> Optional[Tuple[str, dict]]:
+    """
+    Extracts and normalizes product metadata from a raw JSON object.
+    Returns the ASIN and a dictionary of cleaned fields, or None if invalid.
+    """
     asin = norm_text(obj.get("asin"))
     if not asin:
         return None
@@ -130,6 +170,10 @@ def extract_metadata(obj: dict) -> Optional[Tuple[str, dict]]:
 
 
 def extract_reviews(obj : dict):
+    """
+    Extracts and normalizes review data from a raw JSON object.
+    Generates a stable review_id based on content and returns a dictionary.
+    """
 
     asin = norm_text(obj.get("asin"))
     if not asin:

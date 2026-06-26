@@ -1,3 +1,8 @@
+"""
+Data contracts for the generation phase of the RAG pipeline.
+Defines Pydantic models and enums for generation contexts, statuses, and validation signals.
+Ensures type safety and structured data handling during answer generation.
+"""
 import enum 
 
 from pydantic import BaseModel
@@ -12,7 +17,9 @@ class GenerationContext(BaseModel):
 
     context: str
 
-    citation_lookup :dict[str, RetrievalResult]
+    citation_lookup: dict[str, RetrievalResult]
+
+    chat_history: list = []
 
 
 class GenerationStatus(enum.Enum): 

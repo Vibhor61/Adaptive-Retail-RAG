@@ -1,3 +1,9 @@
+"""
+Configuration module for the RAG pipeline settings.
+Defines connection details for PostgreSQL, Qdrant, and Phoenix.
+Manages application-wide environment variables and derived URLs.
+"""
+from typing import Optional
 from pydantic_settings import BaseSettings
 
 
@@ -11,8 +17,6 @@ class Settings(BaseSettings):
     qdrant_host: str
     qdrant_port: int
 
-    ollama_host: str
-    ollama_port: int
 
     phoenix_host: str
     phoenix_port: int
@@ -21,6 +25,7 @@ class Settings(BaseSettings):
     fastapi_port: int
 
     groq_api_key: str
+    groq_api_keys: Optional[str] = None
     
     generation_model: str
     router_model: str
@@ -30,6 +35,15 @@ class Settings(BaseSettings):
 
     reranker_model: str
     
+    backend_url: str = "http://localhost:8000"
+    phoenix_url_ui: str = "http://localhost:6006"
+    ui_file_link: str = "file:///c:/Users/risha/OneDrive/Desktop/RAG/ui.py"
+    main_file_link: str = "file:///c:/Users/risha/OneDrive/Desktop/RAG/main.py"
+
+    @property
+    def stream_url(self) -> str:
+        return f"{self.backend_url}/chat/stream"
+        
     class Config:
         env_file = ".env"
         
@@ -47,9 +61,6 @@ class Settings(BaseSettings):
     def qdrant_url(self) -> str:
         return f"http://{self.qdrant_host}:{self.qdrant_port}"
 
-    @property
-    def ollama_url(self) -> str:
-        return f"http://{self.ollama_host}:{self.ollama_port}"
 
     @property
     def phoenix_url(self) -> str:

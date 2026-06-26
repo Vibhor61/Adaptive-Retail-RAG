@@ -1,3 +1,8 @@
+"""
+Implements entity reranking and resolution logic for routing.
+Scores candidate entities using a cross-encoder model to determine the best match
+for extracted entities, and provides a fallback mechanism when explicit entities are missing.
+"""
 import logging
 import torch
 
@@ -19,6 +24,10 @@ class EntityReranker:
         self.model = model
 
     def rerank(self, query: str, candidates: list[CandidateEntity],) -> list[RankedCandidate]:
+        """
+        Scores and reranks a list of candidate entities against a given query.
+        Returns a list of RankedCandidate objects sorted by their reranker score in descending order.
+        """
 
         with tracer.start_as_current_span("reranker.rerank") as span:
             span.set_attribute("query", query)
@@ -74,6 +83,10 @@ class EntityResolver:
     def resolve(
         self, query: str, intent: Intent, entities: list[str], entity_structure: EntityStructure,
     ) -> list[RankedCandidate]:
+        """
+        Resolves a list of entity strings to actual grounded candidates by searching and reranking.
+        Skips resolution for recommendation or unknown intents, and falls back to full query if entities are missing.
+        """
 
         with tracer.start_as_current_span("resolver.resolve") as span:
             span.set_attribute("query", query)

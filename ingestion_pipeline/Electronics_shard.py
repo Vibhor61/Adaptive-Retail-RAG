@@ -1,6 +1,14 @@
+"""
+Script to shard the raw Amazon reviews dataset into smaller chunks.
+
+This module reads a compressed JSON file of electronics reviews, extracts
+relevant fields using helper functions, and writes them out into smaller,
+compressed JSON lines files (shards) for easier processing.
+"""
+
 import gzip
 import json
-from ingestion_helper import iter_rows, extract_reviews
+from utility_functions.ingestion_helper import iter_rows, extract_reviews
 import os
 
 INPUT_FILE = "../Data/raw_data/Cell_Phones_and_Accessories.json.gz"
@@ -8,6 +16,10 @@ OUTPUT_PREFIX = "../Data/shards"
 SHARD_SIZE = 100000
 
 def shard_reviews():
+    """
+    Iterates through raw reviews, extracts relevant data, and writes to sharded files.
+    Creates a new compressed file whenever the current shard reaches SHARD_SIZE.
+    """
     shard_id = 0
     count = 0 
     total = 0

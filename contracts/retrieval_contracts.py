@@ -1,3 +1,8 @@
+"""
+Defines data models and contracts for the retrieval layer.
+Includes models for retrieval plans, execution results, evaluation bundles,
+and various status enums to manage retrieval lifecycle and quality.
+"""
 import enum 
 
 from typing import Optional

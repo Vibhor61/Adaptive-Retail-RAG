@@ -1,3 +1,9 @@
+"""
+Generation orchestrator module.
+Responsible for managing the answer generation pipeline, including context building,
+answer synthesis, citation resolution, and validation.
+"""
+
 import logging
 from opentelemetry import trace
 
@@ -25,17 +31,22 @@ class GenerationOrchestrator:
     def __init__(self, model):
         self.generator = AnswerGeneration(model)
 
-    def run(self, input: RetrievalLayerOutput) -> GenerationLayerOutput:
+    def run(self, input: RetrievalLayerOutput, config: dict = None, chat_history: list = None) -> GenerationLayerOutput:
+        """
+        Executes the generation pipeline using the retrieved context.
+        Returns the generated answer, resolved citations, and validation results,
+        handling and logging any infrastructure failures.
+        """
 
         with tracer.start_as_current_span("generation_pipeline") as span:
 
             span.set_attribute("generation.query", input.plan.original_query)
 
             try:
-                generation_context = make_generation_context(input)
+                generation_context = make_generation_context(input, chat_history=chat_history)
                 span.set_attribute("generation.context_length", len(generation_context.context))
 
-                answer_text = self.generator.generate_answer(generation_context)
+                answer_text = self.generator.generate_answer(generation_context, config=config)
                 span.set_attribute("generation.answer_length", len(answer_text))
                 
                 citations = self.generator.resolve_citations(generation_context, answer_text)

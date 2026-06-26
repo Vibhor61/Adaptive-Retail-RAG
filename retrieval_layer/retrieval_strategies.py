@@ -1,3 +1,7 @@
+"""
+Defines strategies for fetching and evaluating retrieval bundles based on evidence type and entity structure.
+It contains routing workflows for lookup, comparison, and recommendation, delegating to specialized retrievers.
+"""
 import logging
 from opentelemetry import trace
 
@@ -29,6 +33,10 @@ tracer = trace.get_tracer(__name__)
 
 
 def sparse(entity: RankedCandidate|None, query: str, top_k: int) -> RetrievalEvaluationBundle:
+    """
+    Executes sparse fact retrieval based on a given entity or query.
+    Returns an evaluated retrieval bundle containing the search results and status.
+    """
     bundle = sparse_fact_retrieval(
         entity=entity.title if entity else None,
         asin=entity.asin if entity else None,
@@ -39,6 +47,10 @@ def sparse(entity: RankedCandidate|None, query: str, top_k: int) -> RetrievalEva
 
 
 def fusion(query: str, top_k: int) -> RetrievalEvaluationBundle:
+    """
+    Executes a fusion of dense and review FTS retrieval for a given query.
+    Returns an evaluated retrieval bundle representing combined evidence.
+    """
     bundle = fusion_retrieval(
         query=query,
         top_k=top_k,
@@ -47,6 +59,10 @@ def fusion(query: str, top_k: int) -> RetrievalEvaluationBundle:
 
 
 def recommendation_candidate_gen(query: str, top_k: int) -> RetrievalEvaluationBundle:
+    """
+    Generates broad candidate pools for recommendations based on a query.
+    Returns an evaluated retrieval bundle of candidate items.
+    """
     bundle = candidate_gen_retrieval(
         query=query, 
         top_k=top_k
@@ -55,6 +71,10 @@ def recommendation_candidate_gen(query: str, top_k: int) -> RetrievalEvaluationB
 
 
 def by_evidence_single(entity: RankedCandidate|None, query: str, evidence_type: EvidenceType, top_k: int) -> list[RetrievalEvaluationBundle]:
+    """
+    Selects the appropriate retrieval strategy for a single entity based on evidence type.
+    Returns a list of evaluated retrieval bundles.
+    """
 
     if evidence_type == EvidenceType.FACTUAL:
         return[sparse(entity, query, top_k)]
@@ -71,6 +91,10 @@ def by_evidence_single(entity: RankedCandidate|None, query: str, evidence_type: 
 
 
 def by_evidence_multi(entities: list[RankedCandidate], query: str, evidence_type: EvidenceType, top_k: int) -> list[RetrievalEvaluationBundle]:
+    """
+    Selects appropriate retrieval strategies for multiple entities based on evidence type.
+    Returns a list of evaluated retrieval bundles covering all entities.
+    """
  
     bundles: list[RetrievalEvaluationBundle] = []
  
@@ -95,6 +119,10 @@ def by_evidence_multi(entities: list[RankedCandidate], query: str, evidence_type
 
 
 def lookup_workflow(plan: RetrievalPlan) -> RetrievalLayerOutput:
+    """
+    Executes the lookup workflow based on the provided retrieval plan.
+    Handles specific factual or experiential queries and returns a RetrievalLayerOutput.
+    """
     
     with tracer.start_as_current_span("lookup_workflow") as span:
         span.set_attribute("retrieval.entity_structure", plan.entity_structure.value)
@@ -132,6 +160,10 @@ def lookup_workflow(plan: RetrievalPlan) -> RetrievalLayerOutput:
     
 
 def comparison_workflow(plan: RetrievalPlan) -> RetrievalLayerOutput:
+    """
+    Executes the comparison workflow using a multiple entity retrieval strategy.
+    Returns a RetrievalLayerOutput comparing the specified grounded entities.
+    """
 
     with tracer.start_as_current_span("comparison_workflow") as span:
         span.set_attribute("retrieval.entity_structure", plan.entity_structure.value)
@@ -158,6 +190,10 @@ def comparison_workflow(plan: RetrievalPlan) -> RetrievalLayerOutput:
         return RetrievalLayerOutput(plan=plan, evaluation_bundles=bundles)
 
 def recommendation_workflow(plan: RetrievalPlan) -> RetrievalLayerOutput:
+    """
+    Executes the recommendation workflow using candidate generation or single entity strategies.
+    Returns a RetrievalLayerOutput containing recommended items.
+    """
   
     with tracer.start_as_current_span("recommendation_workflow") as span:
         span.set_attribute("retrieval.entity_structure", plan.entity_structure.value)

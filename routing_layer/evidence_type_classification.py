@@ -1,9 +1,15 @@
+"""
+Provides functionality for determining the evidence type required for answering user queries.
+It uses an LLM to classify queries into factual, experiential, or mixed categories,
+which helps the routing layer fetch appropriate context data for response generation.
+"""
 import logging
 import re
 
 from opentelemetry import trace
 
 from contracts.router_contracts import EvidenceType, Intent
+from utility_functions.llm_utils import safe_llm_call
 
 tracer = trace.get_tracer(__name__)
 logger = logging.getLogger(__name__)
@@ -74,12 +80,16 @@ class EvidenceClassifier:
         self.llm = llm
 
     def llm_evidence_classification(self, query: str) -> EvidenceType:
+        """
+        Invokes an LLM to classify the required evidence type for a query.
+        Returns the corresponding EvidenceType enum or defaults to MIXED on failure.
+        """
         with tracer.start_as_current_span("router.evidence_llm") as span:
             span.set_attribute("query", query)
             try:
-                response = self.llm.invoke(LLM_PROMPT.format(query=query))
+                result = safe_llm_call(self.llm, LLM_PROMPT.format(query=query), mode="raw")
 
-                raw = response.content.strip().lower()
+                raw = result["raw"].strip().lower()
 
                 span.set_attribute("llm.raw_output", raw)
                 span.set_attribute("llm.recognized", raw in EVIDENCE_TOKEN_MAP)
@@ -107,6 +117,10 @@ class EvidenceClassifier:
                 return EvidenceType.MIXED
 
     def derive_evidence_type(self, intent: Intent, query: str) -> EvidenceType:
+        """
+        Derives the evidence type based on the user's intent and query string.
+        Short-circuits to MIXED for recommendations, otherwise relies on LLM classification.
+        """
         with tracer.start_as_current_span("router.evidence_derive") as span:
             span.set_attribute("intent", intent.value)
 

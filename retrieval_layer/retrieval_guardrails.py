@@ -1,3 +1,9 @@
+"""
+Retrieval guardrails module.
+Provides structural validation for retrieval results to ensure consistency.
+Checks for empty bundles, mismatched quality statuses, and other structural violations.
+"""
+
 from contracts.orchestration_contracts import (
     StructuralViolation,
     StructuralGuardrailResult,
@@ -13,6 +19,10 @@ from contracts.retrieval_contracts import (
 def run_retrieval_structural_guardrails(
     bundles: list[RetrievalEvaluationBundle],
 ) -> StructuralGuardrailResult:
+    """
+    Validates the structural integrity of retrieval evaluation bundles.
+    Returns a guardrail result indicating pass/fail status and any violations found.
+    """
 
     violations: list[StructuralViolation] = []
 

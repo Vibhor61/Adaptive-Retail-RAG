@@ -1,3 +1,8 @@
+"""
+Defines data models and contracts for the router layer.
+Includes models for query validation, entity resolution, routing hypotheses,
+intent parsing, and semantic guardrail validation.
+"""
 import enum
 
 from pydantic import BaseModel, Field

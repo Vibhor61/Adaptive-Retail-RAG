@@ -20,4 +20,6 @@ langgraph
 langchain-core
 langchain-groq
 groq
-langchain-ollama
+
+streamlit
+requests

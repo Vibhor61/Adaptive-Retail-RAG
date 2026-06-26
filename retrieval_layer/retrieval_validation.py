@@ -1,3 +1,7 @@
+"""
+Provides validation and evaluation logic for retrieval bundles.
+Analyzes retrieval results to determine quality status, execution success, and potential anomalies.
+"""
 import logging
 from opentelemetry import trace
 
@@ -13,6 +17,10 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 def evaluate_retrieval(bundle: RetrievalBundle) -> RetrievalEvaluationBundle:
+    """
+    Evaluates a raw retrieval bundle to assess its quality and flag any anomalies.
+    Returns a RetrievalEvaluationBundle containing signals and execution status.
+    """
     with tracer.start_as_current_span("evaluate_retrieval") as span:
         anomaly_flags: list[str] = []
 

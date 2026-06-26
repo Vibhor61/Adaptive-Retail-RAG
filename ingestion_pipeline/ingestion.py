@@ -1,3 +1,11 @@
+"""
+Loads product metadata and reviews into a PostgreSQL database.
+
+This module provides functions to parse raw JSON data and insert or update
+records in the database. It handles both product metadata and chunked review
+shards, managing state and avoiding duplicates via batch operations.
+"""
+
 import json
 import psycopg2
 import argparse
@@ -8,7 +16,7 @@ from psycopg2.extras import execute_values
 from pathlib import Path
 from config.settings import settings
 
-from ingestion_helper import iter_rows, extract_metadata, extract_reviews
+from utility_functions.ingestion_helper import iter_rows, extract_metadata, extract_reviews
 
 # Configure logging
 logging.basicConfig(
@@ -58,6 +66,10 @@ REVIEW_UPSERT_SQL = '''
 '''
 
 def load_products(cur, product_file: str, run_date: str, batch_size: int = 5000):
+    """
+    Reads product metadata from a file and inserts or updates it in the database.
+    Returns a dictionary with statistics on rows seen, written, and skipped.
+    """
     logger.info(f"Starting product load from {product_file}")
     buffer = []
     seen , written , skipped = 0, 0, 0
@@ -111,6 +123,10 @@ def load_products(cur, product_file: str, run_date: str, batch_size: int = 5000)
 
 
 def load_reviews(cur, product_file: str, run_date: str, batch_size: int = 5000):
+    """
+    Reads review shards from a file and inserts them into the database.
+    Returns a dictionary with statistics on rows seen, written, and skipped.
+    """
     logger.info(f"Starting review load from {product_file}")
     buffer = []
     seen , written , skipped = 0, 0, 0
@@ -149,6 +165,9 @@ def load_reviews(cur, product_file: str, run_date: str, batch_size: int = 5000):
 
 
 def update_rag_ingest_state(cur, shard_idx: int):
+    """
+    Updates the ingestion state table to record the next shard to process.
+    """
     try:
         cur.execute('''
             INSERT INTO rag_ingest_state (id, next_shard_idx)
@@ -163,6 +182,10 @@ def update_rag_ingest_state(cur, shard_idx: int):
         
 
 def run_loader(product_file_path:str, review_file_path:str, run_date:str, start_shard:int, end_shard:int, overwrite_partition:bool = False, metadata:bool=False):
+    """
+    Main orchestration function to run the data loader.
+    Optionally clears existing partitions, loads product metadata, and iterates over review shards.
+    """
     logger.info(f"Starting data loader - Run date: {run_date}, Shards: {start_shard}-{end_shard}")
     logger.debug(f"Database config: {settings.postgres_url}")
     

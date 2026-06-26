@@ -1,3 +1,7 @@
+"""
+Provides functionality to resolve entity queries against the underlying database.
+Uses a combination of exact matching, full-text search, and fuzzy matching to identify candidate entities.
+"""
 import logging
 
 from psycopg2 import pool
@@ -19,6 +23,10 @@ class DBEntityLoader:
         )
 
     def candidate_search(self, entity: str) -> list[CandidateEntity]:
+        """
+        Searches the database for candidate entities matching the provided text.
+        Returns a list of CandidateEntity objects scored by match quality.
+        """
 
         word_count = len(entity.split())
 

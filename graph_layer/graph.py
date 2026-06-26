@@ -1,3 +1,9 @@
+"""
+This module is responsible for defining and constructing the overall LangGraph workflow.
+It wires together nodes like rewriting, routing, retrieval, generation, and clarification.
+The module sets up conditional edges based on guardrail checks to route execution appropriately.
+"""
+
 from langgraph.graph import StateGraph, END
 
 from graph_layer.state import GraphState
@@ -20,6 +26,11 @@ from orchestration.generation_orchestrator import GenerationOrchestrator
 
 
 def build_graph(generation_llm, router_llm, rewrite_llm):
+    """
+    Initializes orchestrators and nodes, then constructs the state graph.
+    Defines the entry point and conditional routing logic between graph nodes.
+    Returns the compiled graph ready for execution.
+    """
 
     router = RouterOrchestrator(router_llm)
     generation = GenerationOrchestrator(generation_llm)

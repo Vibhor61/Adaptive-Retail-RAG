@@ -3,10 +3,5 @@ Data/
 __pycache__/
 *.pyc
 .pytest_cache/
-README.md
 ingestion.log
 embeddings.log
-orchestration/controller.py
-/.agents
-project_report.md
-eval/

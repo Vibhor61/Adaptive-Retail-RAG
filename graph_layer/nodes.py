@@ -14,6 +14,24 @@ from routing_layer.router_guardrails import run_structural_guardrails
 tracer = trace.get_tracer(__name__)
 
 
+_CLARIFICATION_MESSAGES = {
+    ("router", "query_validity_failed"):
+        "I couldn't quite parse that as a valid query could you rephrase it?",
+    ("router", "router_structural_guardrail_failed"):
+        "The query can't be understood completely could you rephrase it?",
+    ("router", "unknown_intent"):
+        "I'm not sure what you're asking for could you clarify what you'd like to know?",
+    ("router", "missing_entities"):
+        "I couldn't identify what you're referring to could you specify it more directly?",
+    ("router", "missing_router_output"):
+        "Something went wrong while processing your query. Could you try rephrasing it?",
+    ("retrieval", "retrieval_structural_guardrail_failed"):
+        "I couldn't find enough relevant information to answer that confidently.",
+}
+
+_DEFAULT_MESSAGE = "Please rephrase your query."
+
+
 @contextmanager
 def trace_node(name: str, attributes: dict = None):
     with tracer.start_as_current_span(name) as span:
@@ -52,16 +70,45 @@ def make_rewrite_node(rewrite_llm):
                     **_control(stage="rewrite", should_clarify=False),
                 }
 
-            prompt = f"""
-                Rewrite the query for retrieval based on conversation history.
-                Return only the rewritten query.
+            history_str = "\n".join(f"{h['role']}: {h['content']}" for h in history)
+            prompt = f"""You are a search query rewriter for a retail RAG system.
+Your task is to rewrite the user's latest query to be self-contained for retrieval, using the conversation history.
 
-                Query:
-                {query}
+RULES:
+1. Resolve any pronouns (e.g. 'its', 'they', 'those', 'which') or implicit references using the history.
+2. If the query is a new, independent question or topic that does not refer to the previous history, do NOT modify it or force references to the history. Keep it as close to the original query as possible.
+3. The output must be a natural language search query.
+4. Do NOT output SQL, code, tags, or any explanation. Output ONLY the rewritten query text.
 
-                History:
-                {history}
-            """
+EXAMPLES:
+
+Example 1:
+History:
+user: Tell me about the Casio C711 Charging Cradle.
+assistant: The Casio C711 Charging Cradle is...
+Query: Are its reviews positive?
+Rewritten Query: Are the reviews of the Casio C711 Charging Cradle positive?
+
+Example 2:
+History:
+user: Tell me about the Casio C711 Charging Cradle.
+assistant: The Casio C711 Charging Cradle is...
+Query: recommend me cases for iPhone 4
+Rewritten Query: recommend me cases for iPhone 4
+
+Example 3:
+History:
+user: Compare OtterBox Defender for iPhone 6 vs Speck CandyShell.
+assistant: The OtterBox Defender is...
+Query: which is cheaper?
+Rewritten Query: Which is cheaper between OtterBox Defender for iPhone 6 and Speck CandyShell?
+
+Actual Query to Rewrite:
+History:
+{history_str}
+Query:
+{query}
+Rewritten Query:"""
 
             response = rewrite_llm.invoke(prompt)
             return {
@@ -247,11 +294,14 @@ def retrieval_guardrail_node(state):
 
 
 def make_generation_node(generation):
-    def generation_node(state):
+    def generation_node(state, config):
         retrieval: RetrievalLayerOutput = state["retrieval"]["output"]
+        chat_history = state.get("chat_history", [])
 
         with trace_node("generation_node"):
-            generation_result: GenerationLayerOutput = generation.run(retrieval)
+            generation_result: GenerationLayerOutput = generation.run(
+                retrieval, config=config, chat_history=chat_history
+            )
 
             should_clarify = generation_result.system_failure is not None
 
@@ -276,25 +326,6 @@ def make_generation_node(generation):
             }
 
     return generation_node
-
-
-
-_CLARIFICATION_MESSAGES = {
-    ("router", "query_validity_failed"):
-        "I couldn't quite parse that as a valid query could you rephrase it?",
-    ("router", "router_structural_guardrail_failed"):
-        "The query can't be understood completely could you rephrase it?",
-    ("router", "unknown_intent"):
-        "I'm not sure what you're asking for could you clarify what you'd like to know?",
-    ("router", "missing_entities"):
-        "I couldn't identify what you're referring to could you specify it more directly?",
-    ("router", "missing_router_output"):
-        "Something went wrong while processing your query. Could you try rephrasing it?",
-    ("retrieval", "retrieval_structural_guardrail_failed"):
-        "I couldn't find enough relevant information to answer that confidently.",
-}
-
-_DEFAULT_MESSAGE = "Please rephrase your query."
 
 
 def clarification_node(state):
