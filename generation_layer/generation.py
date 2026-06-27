@@ -9,7 +9,6 @@ import logging
 
 from opentelemetry import trace
 
-from config.settings import settings
 from utility_functions.llm_utils import extract_citation_ids
 
 from contracts.generation_contracts import(

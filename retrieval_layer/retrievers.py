@@ -179,9 +179,9 @@ def review_fts_retrieval(query: str, top_k: int = 5,) -> RetrievalBundle:
                 retrieval_results.append(
                     RetrievalResult(
                         source="review_fts",
-                        doc_id=row[0],
-                        review_id=row[1],
-                        asin=row[0],
+                        doc_id=asin,
+                        review_id=review_id,
+                        asin=asin,
                         score=float(row[7]),
                         rank=rank,
                         text=combined,

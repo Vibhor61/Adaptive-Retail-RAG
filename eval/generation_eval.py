@@ -8,7 +8,6 @@ import json
 import os
 import re
 from config.settings import settings
-import sys
 from pathlib import Path
 import numpy as np
 from openai import OpenAI
@@ -154,7 +153,7 @@ def answer_relevancy(question: str, answer: str) -> float | None:
     )
     try:
         text = groq_chat([{"role": "user", "content": gen_prompt}], max_tokens=512, temperature=0.3)
-        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
         gen_qs = lines[:N_GEN_QS]
         if not gen_qs:
             return None

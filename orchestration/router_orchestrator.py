@@ -66,6 +66,7 @@ class RouterOrchestrator:
         """
 
         validity_result = None 
+        candidate_entities = []
         with tracer.start_as_current_span("router_pipeline") as span:
             span.set_attribute("router.query", query)
 

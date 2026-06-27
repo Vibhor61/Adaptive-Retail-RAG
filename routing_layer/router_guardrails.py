@@ -83,10 +83,6 @@ def _check_entity_structure(output: RouterResult) -> List[StructuralViolation]:
                 )
             )
 
-
-    elif output.entity_structure == EntityStructure.MULTI_IMPLICIT:
-        pass
-
     return violations
 
 

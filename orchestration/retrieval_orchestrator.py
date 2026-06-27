@@ -15,7 +15,9 @@ from contracts.orchestration_contracts import (
 )
 
 from contracts.router_contracts import (
-    Intent
+    Intent,
+    EvidenceType,
+    EntityStructure
 )
 
 from contracts.retrieval_contracts import (
@@ -85,8 +87,18 @@ def run_retrieval_pipeline(input: RouterLayerOutput) -> RetrievalLayerOutput:
 
             logger.exception("Infrastructure failure in retrieval pipeline")
 
+            fallback_plan = locals().get("plan")
+            if fallback_plan is None:
+                fallback_plan = RetrievalPlan(
+                    original_query=input.normalized_query or "",
+                    intent_type=Intent.UNKNOWN,
+                    evidence_type=EvidenceType.MIXED,
+                    entity_structure=EntityStructure.NONE,
+                    grounded_entities=[],
+                )
+
             return RetrievalLayerOutput(
-                plan=locals().get("plan"),
+                plan=fallback_plan,
                 evaluation_bundles=[],
                 system_failure=ExceptionInfo(
                     exception_type=type(e).__name__,

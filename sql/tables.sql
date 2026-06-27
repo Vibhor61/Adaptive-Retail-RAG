@@ -69,3 +69,9 @@ CREATE TABLE IF NOT EXISTS rag_ingest_state (
 INSERT INTO rag_ingest_state (id, next_shard_idx)
 VALUES (1, 0)
 ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS sessions_table (
+  session_id        TEXT PRIMARY KEY,
+  history           JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_at        TIMESTAMPTZ DEFAULT now()
+);

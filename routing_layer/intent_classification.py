@@ -5,7 +5,6 @@ and extracts product entities to determine the query's structural complexity.
 """
 import json
 import logging
-import re
 
 from opentelemetry import trace
 

@@ -6,15 +6,16 @@ generates embeddings using SentenceTransformers, and stores the resulting
 vectors in a Qdrant vector database.
 """
 
-import pandas as pd
 import logging
 import psycopg2
 import uuid
 
+import pandas as pd
 from pathlib import Path
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct
 from sentence_transformers import SentenceTransformer
+
 from config.settings import settings
 
 logging.basicConfig(
@@ -42,7 +43,7 @@ def get_connection():
     """
     try:
         conn = psycopg2.connect(settings.postgres_url)
-        logger.info(f"Successfully connected to PostgreSQL database: {DB_CONFIG['database']}")
+        logger.info(f"Successfully connected to PostgreSQL database: {settings.postgres_db}")
         return conn
     except Exception as e:
         logger.error(f"Failed to connect to PostgreSQL: {e}")

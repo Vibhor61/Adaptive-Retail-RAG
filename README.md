@@ -108,7 +108,7 @@ The evaluation harness indicates robust performance, with exact match queries sc
 | Embeddings & Reranking | SentenceTransformers (`BAAI/bge-small-en-v1.5`), CrossEncoder (`ms-marco-MiniLM-L-6-v2`) |
 | Router, Rewrite & Generation LLMs | Groq API (`llama-3.1-8b-instant`, `llama-3.3-70b-versatile`) |
 | Observability & Telemetry | OpenTelemetry, Arize Phoenix |
-| Storage & Session | PostgreSQL, Python `shelve` |
+| Storage & Session | PostgreSQL |
 | Client UI | Streamlit |
 | Infrastructure | Docker, Docker Compose |
 
@@ -380,4 +380,3 @@ python eval/generation_eval.py
 - **Dynamic Web Frontend**: Build a rich, interactive frontend interface (e.g., React or Next.js) to replace the basic Streamlit UI.
 - **CI/CD Integration**: Implement GitHub Actions or similar automated pipelines for automated linting, checking, and unit testing.
 - **Self-Healing Retrieval Loops**: Design LLM-driven retry and refinement loops that automatically adapt and heal weak retrieval bundles before passing them to generation.
-- **PostgreSQL Session Persistence**: Transition session storage and chat history from local Python `shelve` file stubs to PostgreSQL for a production-ready setup.

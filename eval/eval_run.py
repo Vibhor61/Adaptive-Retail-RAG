@@ -121,7 +121,7 @@ def run():
 
     succeeded = sum(1 for r in results if r["request_error"] is None and r["request_status_code"] == 200)
     failed = len(results) - succeeded
-    print(f"\n=== Eval Run Complete ===")
+    print("\n=== Eval Run Complete ===")
     print(f"Total: {len(results)} | Succeeded: {succeeded} | Failed: {failed}")
     print(f"Saved to: {OUT_PATH}")
 

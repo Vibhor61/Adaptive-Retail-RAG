@@ -6,24 +6,23 @@ Provides endpoints for standard chat and evaluation chat workflows.
 """
 from typing import Any, List, Optional
 from uuid import uuid4
-import shelve
 import os
 import threading
 import json
 import traceback
-from contextlib import asynccontextmanager
+import queue
+import psycopg2
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from opentelemetry import trace
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import BaseCallbackHandler
-import queue
-
 from langchain_groq import ChatGroq
 
 from config.settings import settings
-from config.telemetry import setup_tracing
+from config.telemetry import setup_tracing, shutdown_tracing
 from graph_layer.graph import build_graph
 from eval.eval_graph import build_eval_graph
 
@@ -32,35 +31,15 @@ from orchestration.generation_orchestrator import GenerationOrchestrator
 
 tracer = trace.get_tracer(__name__)
 
-SESSION_DB_PATH = "data/sessions.db"
-os.makedirs("data", exist_ok=True)
+def get_db_connection():
+    return psycopg2.connect(settings.postgres_url)
 
-_shelve_lock = threading.Lock()
-
-
-def load_session_store():
-    """
-    Opens and returns a shelve database for session storage.
-    Provides writeback capabilities for updating session history.
-    """
-    return shelve.open(SESSION_DB_PATH, writeback=True)
-
-
-import pydantic
 
 compiled_graph = None
 compiled_eval_graph = None
 generation_llm_global = None
 router_llm_global = None
 rewrite_llm_global = None
-
-_request_counter = 0
-_counter_lock = threading.Lock()
-
-def rotate_api_keys():
-    # Key assignment is statically split: Key 1 for Router/Rewrite, Key 2 for Generation.
-    # No dynamic rotation is needed anymore to prevent rate limit sharing.
-    pass
 
 
 @asynccontextmanager
@@ -73,6 +52,18 @@ async def lifespan(app: FastAPI):
 
     # 1. Tracing must come first
     setup_tracing()
+
+    # Create sessions_table if not exists
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS sessions_table (
+                    session_id TEXT PRIMARY KEY,
+                    history JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                );
+            """)
+            conn.commit()
 
     # 2. Extract separate keys for static split
     keys_str = os.environ.get("GROQ_API_KEYS") or settings.groq_api_key
@@ -110,14 +101,15 @@ async def lifespan(app: FastAPI):
     )
 
     yield
-
-    # Shutdown
-    from config.telemetry import shutdown_tracing
+    
     shutdown_tracing()
 
 
 app = FastAPI(title="RAG Pipeline API", lifespan=lifespan)
 
+"""
+Pydantic Request/Response Models
+"""
 
 class ChatRequest(BaseModel):
     query: str
@@ -131,6 +123,26 @@ class ChatResponse(BaseModel):
     system_failure: Optional[str] = None
 
 
+class EvalChatRequest(BaseModel):
+    query: str
+
+
+class EvalControlInfo(BaseModel):
+    stage: Optional[str] = None
+    should_clarify: bool = False
+    failure_stage: Optional[str] = None
+    failure_reason: Optional[str] = None
+
+
+class EvalChatResponse(BaseModel):
+    answer: Optional[str]
+    citations: List[Any] = []
+    control: EvalControlInfo
+    router_result: Optional[Any] = None
+    router_guardrails: Optional[Any] = None
+    retrieval_result: Optional[Any] = None
+    retrieval_guardrails: Optional[Any] = None
+    generation_result: Optional[Any] = None
 
 
 class StreamingCallback(BaseCallbackHandler):
@@ -139,22 +151,14 @@ class StreamingCallback(BaseCallbackHandler):
         self._generation_active = False
 
     def start_generation(self) -> None:
-        """Called by generate_answer before streaming starts."""
         self._generation_active = True
 
     def stop_generation(self) -> None:
-        """Called by generate_answer after streaming ends."""
         self._generation_active = False
 
     def on_llm_new_token(self, token: str, **kwargs) -> None:
         if self._generation_active:
             self.q.put(token)
-
-    def on_llm_end(self, response, **kwargs) -> None:
-        pass
-
-    def on_llm_error(self, error, **kwargs) -> None:
-        pass
 
 
 @app.post("/chat/stream")
@@ -166,8 +170,6 @@ def chat_stream(request: ChatRequest):
     if compiled_graph is None:
         raise HTTPException(status_code=500, detail="graph_not_initialized")
 
-    rotate_api_keys()
-
     session_id = request.session_id or str(uuid4())
 
     def generate():
@@ -177,31 +179,47 @@ def chat_stream(request: ChatRequest):
 
         def run_graph():
             try:
-                with _shelve_lock:
-                    with load_session_store() as db:
-                        history = db.get(session_id, [])
+                # Load history from PostgreSQL
+                with get_db_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT history FROM sessions_table WHERE session_id = %s;", (session_id,))
+                        row = cur.fetchone()
+                        if row:
+                            history = row[0]
+                            if isinstance(history, str):
+                                history = json.loads(history)
+                        else:
+                            history = []
 
-                        initial_state = {
-                            "query": {
-                                "original_query": request.query,
-                                "rewritten_query": None,
-                            },
-                            "chat_history": history,
-                        }
+                initial_state = {
+                    "query": {
+                        "original_query": request.query,
+                        "rewritten_query": None,
+                    },
+                    "chat_history": history,
+                }
 
-                        with tracer.start_as_current_span("main_pipeline_stream"):
-                            final_state = compiled_graph.invoke(initial_state, config=config)
+                with tracer.start_as_current_span("main_pipeline_stream"):
+                    final_state = compiled_graph.invoke(initial_state, config=config)
 
-                            control = final_state.get("control", {}) or {}
-                            response = final_state.get("response", {}) or {}
-                            did_clarify = control.get("should_clarify", False)
-                            answer = response.get("answer")
+                    control = final_state.get("control", {}) or {}
+                    response = final_state.get("response", {}) or {}
+                    did_clarify = control.get("should_clarify", False)
+                    answer = response.get("answer")
 
-                            if not did_clarify and answer:
-                                history.append({"role": "user", "content": request.query})
-                                history.append({"role": "assistant", "content": answer})
-                                db[session_id] = history
-                                db.sync()
+                    if not did_clarify and answer:
+                        history.append({"role": "user", "content": request.query})
+                        history.append({"role": "assistant", "content": answer})
+                        # Save history back to PostgreSQL
+                        with get_db_connection() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute("""
+                                    INSERT INTO sessions_table (session_id, history)
+                                    VALUES (%s, %s::jsonb)
+                                    ON CONFLICT (session_id)
+                                    DO UPDATE SET history = EXCLUDED.history, updated_at = now();
+                                """, (session_id, json.dumps(history)))
+                                conn.commit()
                             
                             if did_clarify or "generation" not in final_state:
                                 if answer:
@@ -259,35 +277,12 @@ def clear_session(session_id: str) -> dict:
     Deletes a specific session from the session store.
     Returns a dictionary confirming the deletion of the session ID.
     """
-    with _shelve_lock:
-        with load_session_store() as db:
-            if session_id in db:
-                del db[session_id]
-                db.sync()
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sessions_table WHERE session_id = %s;", (session_id,))
+            conn.commit()
 
     return {"cleared": session_id}
-
-
-class EvalChatRequest(BaseModel):
-    query: str
-
-
-class EvalControlInfo(BaseModel):
-    stage: Optional[str] = None
-    should_clarify: bool = False
-    failure_stage: Optional[str] = None
-    failure_reason: Optional[str] = None
-
-
-class EvalChatResponse(BaseModel):
-    answer: Optional[str]
-    citations: List[Any] = []
-    control: EvalControlInfo
-    router_result: Optional[Any] = None
-    router_guardrails: Optional[Any] = None
-    retrieval_result: Optional[Any] = None
-    retrieval_guardrails: Optional[Any] = None
-    generation_result: Optional[Any] = None
 
 
 @app.post("/eval_chat", response_model=EvalChatResponse)
@@ -299,8 +294,6 @@ def eval_chat(request: EvalChatRequest) -> EvalChatResponse:
 
     if compiled_eval_graph is None:
         raise HTTPException(status_code=500, detail="eval_graph_not_initialized")
-
-    rotate_api_keys()
 
     # No rewrite node in this graph: feed the raw query straight into
     initial_state = {
