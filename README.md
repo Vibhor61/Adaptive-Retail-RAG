@@ -25,41 +25,11 @@ https://github.com/user-attachments/assets/0894868d-0d64-463a-b094-adc05f67b4fa
 
 ## Architecture Diagram
 
-```mermaid
-flowchart LR
-
-    User([User])
-
-    User --> UI["Streamlit<br/>Frontend"]
-
-    UI --> API["FastAPI<br/>Backend"]
-
-    API --> Graph["LangGraph<br/>Orchestrator"]
-
-    Graph --> Router["Routing Layer"]
-    Graph --> Retrieval["Retrieval Layer"]
-    Graph --> Generation["Generation Layer"]
-
-    Retrieval --> PostgreSQL[("PostgreSQL")]
-
-    Retrieval --> Qdrant[("Qdrant")]
-
-    PostgreSQL --> Dataset[("Amazon Electronics<br/>Dataset")]
-
-    Graph -. Traces .-> OTel["OpenTelemetry"]
-
-    OTel --> Phoenix["Arize Phoenix"]
-
-    classDef warm fill:#fff3e0,stroke:#e65100,stroke-width:1px,color:#5d4037;
-    classDef light fill:#fffde7,stroke:#ffb300,stroke-width:1px,color:#5d4037;
-    classDef accent fill:#fce4ec,stroke:#d81b60,stroke-width:1px,color:#880e4f;
-    classDef startend fill:#efebe9,stroke:#8d6e63,stroke-width:1.5px,color:#3e2723;
-
-    class User startend;
-    class UI,API,Graph warm;
-    class Router,Retrieval,Generation light;
-    class PostgreSQL,Qdrant,Dataset,OTel,Phoenix accent;
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/architecture_diagram_dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/diagrams/architecture_diagram_light.svg">
+  <img alt="Architecture Diagram" src="assets/diagrams/architecture_diagram_light.svg">
+</picture>
 
 ---
 ## Results 
@@ -165,126 +135,21 @@ Adaptive-Retail-RAG/
 
 ### Node Execution Flow
 
-```mermaid
-%%{init: {
-  'flowchart': {
-    'nodeSpacing': 30,
-    'rankSpacing': 30,
-    'padding': 10
-  },
-  'themeVariables': {
-    'lineColor': '#8d6e63',
-    'arrowheadColor': '#8d6e63'
-  }
-}}%%
-flowchart TD
-
-    START([Start]) --> Rewrite["Rewrite Query"]
-    Rewrite --> Router["Route Query"]
-    Router --> RouterGuard["Router Guardrail"]
-
-    PostRouter["Post Router"] --> Retrieval["Retrieval"]
-    Retrieval --> RetrievalGuard["Retrieval Guardrail"]
-    RetrievalGuard -->|"Evidence Sufficient"| Generation[Generation]
-    Generation -->|"Validated Response"| END([End])
-
-    RouterGuard -->|"Valid Query"| PostRouter
-    RouterGuard -->|"Clarification Required"| Clarification[Clarification]
-    PostRouter -->|"Clarification Required"| Clarification
-    RetrievalGuard -->|"Insufficient Evidence"| Clarification
-    Generation -->|"Validation Failed"| Clarification
-    Clarification --> END
-
-    classDef warm fill:#fff3e0,stroke:#e65100,stroke-width:1px,color:#5d4037;
-    classDef light fill:#fffde7,stroke:#ffb300,stroke-width:1px,color:#5d4037;
-    classDef accent fill:#fce4ec,stroke:#d81b60,stroke-width:1px,color:#880e4f;
-    classDef startend fill:#efebe9,stroke:#8d6e63,stroke-width:1.5px,color:#3e2723;
-
-    class START,END startend;
-    class Rewrite,Router,PostRouter,Retrieval,Generation warm;
-    class RouterGuard,RetrievalGuard light;
-    class Clarification accent;
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/node_execution_flow_dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/diagrams/node_execution_flow_light.svg">
+  <img alt="Node Execution Flow" src="assets/diagrams/node_execution_flow_light.svg">
+</picture>
 
 #### The Node Execution Flow illustrates the high-level transitions and guardrail logic of the LangGraph state machine. It manages conditional routing to the Clarification node when validation rules or safety thresholds are triggered.
 
 ### Detailed Execution Flow
 
-```mermaid
-flowchart LR
-
-    Query([User Query])
-    Rewrite["Query<br/>Rewrite"]
-    Response([Final Response])
-
-    Query --> Rewrite
-    Rewrite --> Router
-
-    subgraph Router["Router Node"]
-        direction TB
-
-        Intent["Intent<br/>Classification"]
-        Evidence["Evidence<br/>Classification"]
-        Entity["Entity<br/>Grounding"]
-        EntityReranker["Cross-Encoder<br/>Reranker"]
-
-        Intent --> Evidence --> Entity --> EntityReranker
-    end
-
-    Router --> Retrieval
-
-    subgraph Retrieval["Retrieval Node"]
-        direction TB
-
-        subgraph Selection["Workflow Selection"]
-            direction TB
-            EntityStruct["Entity Structure"]
-            EvidenceType["Evidence Type"]
-            EntityStruct & EvidenceType --> Select["Workflow Decision"]
-        end
-
-        Workflows["Workflows<br/>(Lookup / Comparison / Recommendation)"]
-
-        subgraph Strategies["Retrieval Strategies"]
-            direction LR
-            Sparse["Sparse Product FTS<br/>(Postgres)"]
-            Fusion["Hybrid Fusion RRF<br/>(Postgres + Qdrant)"]
-            Candidate["Candidate Gen<br/>(Qdrant)"]
-        end
-
-        Select --> Workflows
-        Workflows --> Strategies
-
-        Retrieved["Retrieved Context"]
-        Strategies --> Retrieved
-    end
-
-    Retrieval --> Generation
-
-    subgraph Generation["Generation Node"]
-        direction TB
-
-        Context["Context<br/>Builder"]
-        LLM["LLM<br/>Generation"]
-        Citation["Citation<br/>Resolution"]
-        Validation["Answer<br/>Validation"]
-
-        Context --> LLM --> Citation --> Validation
-    end
-
-    Generation --> Response
-
-    classDef warm fill:#fff3e0,stroke:#e65100,stroke-width:1px,color:#5d4037;
-    classDef light fill:#fffde7,stroke:#ffb300,stroke-width:1px,color:#5d4037;
-    classDef accent fill:#fce4ec,stroke:#d81b60,stroke-width:1px,color:#880e4f;
-    classDef startend fill:#efebe9,stroke:#8d6e63,stroke-width:1.5px,color:#3e2723;
-
-    class Query,Response startend;
-    class Rewrite,Select,Workflows,Retrieved,Context,LLM,Citation,Validation warm;
-    class Intent,Evidence,Entity,EntityReranker,EntityStruct,EvidenceType,Sparse,Fusion,Candidate light;
-
-    style Strategies fill:#fff9c4,stroke:#fbc02d,stroke-width:1.5px;
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/detailed_execution_flow_dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/diagrams/detailed_execution_flow_light.svg">
+  <img alt="Detailed Execution Flow" src="assets/diagrams/detailed_execution_flow_light.svg">
+</picture>
 
 #### The LangGraph state machine manages typed states across nodes. Queries are rewritten using history, routed by intent/evidence, retrieved via multi-arm strategies, validated by guardrails, and generated with citations. Any structural or safety failure gracefully routes to the clarification node to return user-friendly error messages.
 
@@ -294,33 +159,11 @@ flowchart LR
 
 ### Pipeline Flow
 
-```mermaid
-flowchart LR
-
-    Dataset[(Amazon Electronics Dataset)]
-
-    Dataset --> Product["Product<br/>Ingestion"]
-    Dataset --> Review["Review<br/>Ingestion"]
-
-    Product --> |Product Metadata|PostgreSQL[(PostgreSQL)]
-
-    Review --> PostgreSQL
-
-    PostgreSQL -->|"Unembedded Reviews"| Embedding["Embedding<br/>Pipeline"]
-
-    Embedding --> Model["SentenceTransformer<br/>BAAI/bge-small-en-v1.5"]
-
-    Model --> Qdrant[(Qdrant)]
-
-    classDef warm fill:#fff3e0,stroke:#e65100,stroke-width:1px,color:#5d4037;
-    classDef light fill:#fffde7,stroke:#ffb300,stroke-width:1px,color:#5d4037;
-    classDef accent fill:#fce4ec,stroke:#d81b60,stroke-width:1px,color:#880e4f;
-    classDef startend fill:#efebe9,stroke:#8d6e63,stroke-width:1.5px,color:#3e2723;
-
-    class Dataset startend;
-    class Product,Review,Embedding warm;
-    class PostgreSQL,Qdrant,Model light;
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/pipeline_flow_dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/diagrams/pipeline_flow_light.svg">
+  <img alt="Pipeline Flow" src="assets/diagrams/pipeline_flow_light.svg">
+</picture>
 
 #### The Ingestion Pipeline ingests products and reviews from gzip JSONL shard datasets into PostgreSQL and Qdrant. A local tracker state table (`rag_ingest_state`) prevents duplicating shards, and un-vectorized reviews are embedded using SentenceTransformers and pushed to Qdrant.
 
