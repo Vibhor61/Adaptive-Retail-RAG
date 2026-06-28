@@ -68,7 +68,7 @@ flowchart LR
 
 | Metric | Value |
 |---|---|
-| Customer Reviews Ingested | 10M+ |
+| Customer Reviews Ingested | 4M+ |
 | Product Catalog Entries | 589,356 |
 | Benchmark Queries | 140 |
 | Vector Space Dimensions | 384 (Cosine Space) |

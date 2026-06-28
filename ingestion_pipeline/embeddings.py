@@ -125,7 +125,7 @@ def create_embeddings(conn, df, qdrant_batch_size:int = 256):
         
         logger.info(f"Encoding {len(formatted_texts)} texts using {EMBEDDING_MODEL_NAME}")
         embeddings = model.encode(
-            formatted_texts, normalize_embeddings=True, show_progress_bar=True
+            formatted_texts, batch_size=256, normalize_embeddings=True, show_progress_bar=True
         )
         logger.info(f"Successfully encoded {len(embeddings)} embeddings")
 
